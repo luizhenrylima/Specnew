@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { criarClientePublico } from "@/lib/supabase/server";
 import { urlPublica } from "@/lib/supabase/env";
 import Visualizador3D from "@/components/Visualizador3D";
+import AcabamentosProduto, { type AcabamentoLib, type FamiliaMarca, type ParteProduto } from "@/components/AcabamentosProduto";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +15,27 @@ async function buscar(slug: string) {
   const { data } = await supabase
     .from("produtos")
     .select(
-      "nome, linha, variante, referencia, categoria, descricao, largura_mm, profundidade_mm, altura_mm, glb_path, especificacoes, marcas(nome, slug), produto_medidas(rotulo, ordem), arquivos_download(formato, path, tamanho_bytes)"
+      "nome, linha, variante, referencia, categoria, descricao, largura_mm, profundidade_mm, altura_mm, glb_path, especificacoes, notas_acabamento, marca_id, marcas(nome, slug), produto_medidas(rotulo, ordem), arquivos_download(formato, path, tamanho_bytes), produto_partes(rotulo, familias, ordem)"
     )
     .eq("slug", slug)
     .maybeSingle();
   return data;
+}
+
+// Regra da marca (família -> coleções) e os acabamentos das coleções usadas pelas partes deste produto.
+async function buscarAcabamentos(marcaId: string, partes: ParteProduto[]) {
+  const familiasUsadas = [...new Set(partes.flatMap((p) => p.familias))];
+  if (!familiasUsadas.length) return { familias: [], acabamentos: [] };
+  const supabase = criarClientePublico();
+  const { data: familias } = await supabase
+    .from("marca_familias").select("familia, rotulo, colecoes, ordem").eq("marca_id", marcaId).in("familia", familiasUsadas);
+  const colecoes = [...new Set((familias ?? []).flatMap((f) => f.colecoes as string[]))];
+  const { data: acabamentos } = colecoes.length
+    ? await supabase.from("acabamentos")
+        .select("id, nome, colecao, cor_hex, textura_miniatura_path, tamanho_real_cm, tamanho_real_altura_cm")
+        .eq("ativo", true).in("colecao", colecoes).order("ordem")
+    : { data: [] };
+  return { familias: (familias ?? []) as FamiliaMarca[], acabamentos: (acabamentos ?? []) as AcabamentoLib[] };
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -55,6 +72,8 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
   const medidas = [...((p.produto_medidas as { rotulo: string; ordem: number }[]) ?? [])].sort((a, b) => a.ordem - b.ordem);
   const glb = urlPublica(p.glb_path);
   const downloads = (p.arquivos_download as { formato: string; path: string; tamanho_bytes: number | null }[]) ?? [];
+  const partes = (p.produto_partes as ParteProduto[]) ?? [];
+  const { familias, acabamentos } = await buscarAcabamentos(p.marca_id, partes);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
@@ -102,7 +121,9 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
             )}
           </div>
 
-          {(esp.revestimentos?.length || esp.aplicacoes?.length) && (
+          {partes.length > 0 ? (
+            <AcabamentosProduto partes={partes} familias={familias} acabamentos={acabamentos} notas={(p.notas_acabamento as string[]) ?? []} />
+          ) : (esp.revestimentos?.length || esp.aplicacoes?.length) ? (
             <div className="rounded-lg border border-neutral-200 p-4 text-sm">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Acabamentos</h2>
               {!!esp.revestimentos?.length && (
@@ -124,7 +145,7 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
                 <p className="mt-4 text-xs text-neutral-500">{esp.observacoes.join(" · ")}</p>
               )}
             </div>
-          )}
+          ) : null}
 
           <div className="rounded-lg border border-neutral-200 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Downloads</h2>
