@@ -162,8 +162,13 @@ if (gravar) {
   const slugParte = (n) => sem(n).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   for (const p of saida) {
     const id = produtos.find((x) => x.slug === p.slug).id;
+    // preserva a ligação parte -> materiais do 3D (feita por partes-materiais.mjs)
+    const { data: antes } = await sb.from("produto_partes").select("rotulo, materiais").eq("produto_id", id);
+    const materiaisDe = new Map((antes ?? []).map((x) => [x.rotulo, x.materiais ?? []]));
     await sb.from("produto_partes").delete().eq("produto_id", id);
-    const linhas = p.partes.map((x, i) => ({ produto_id: id, nome_no_obj: slugParte(x.nome), rotulo: x.nome, familias: x.familias, ordem: i }));
+    const linhas = p.partes.map((x, i) => ({
+      produto_id: id, nome_no_obj: slugParte(x.nome), rotulo: x.nome, familias: x.familias, ordem: i, materiais: materiaisDe.get(x.nome) ?? [],
+    }));
     if (linhas.length) {
       const { error: e } = await sb.from("produto_partes").insert(linhas);
       if (e) throw new Error(`${p.slug}: ${e.message}`);

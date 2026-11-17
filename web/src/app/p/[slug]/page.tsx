@@ -4,6 +4,7 @@ import { criarClientePublico } from "@/lib/supabase/server";
 import { urlPublica } from "@/lib/supabase/env";
 import Visualizador3D from "@/components/Visualizador3D";
 import AcabamentosProduto, { type AcabamentoLib, type FamiliaMarca, type ParteProduto } from "@/components/AcabamentosProduto";
+import { Configurador } from "@/components/Configurador";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ async function buscar(slug: string) {
   const { data } = await supabase
     .from("produtos")
     .select(
-      "nome, linha, variante, referencia, categoria, descricao, largura_mm, profundidade_mm, altura_mm, glb_path, especificacoes, notas_acabamento, marca_id, marcas(nome, slug), produto_medidas(rotulo, ordem), arquivos_download(formato, path, tamanho_bytes), produto_partes(rotulo, familias, ordem)"
+      "nome, linha, variante, referencia, categoria, descricao, largura_mm, profundidade_mm, altura_mm, glb_path, especificacoes, notas_acabamento, marca_id, marcas(nome, slug), produto_medidas(rotulo, ordem), arquivos_download(formato, path, tamanho_bytes), produto_partes(rotulo, familias, materiais, ordem)"
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -28,11 +29,11 @@ async function buscarAcabamentos(marcaId: string, partes: ParteProduto[]) {
   if (!familiasUsadas.length) return { familias: [], acabamentos: [] };
   const supabase = criarClientePublico();
   const { data: familias } = await supabase
-    .from("marca_familias").select("familia, rotulo, colecoes, ordem").eq("marca_id", marcaId).in("familia", familiasUsadas);
+    .from("marca_familias").select("familia, rotulo, colecoes, brilho, ordem").eq("marca_id", marcaId).in("familia", familiasUsadas);
   const colecoes = [...new Set((familias ?? []).flatMap((f) => f.colecoes as string[]))];
   const { data: acabamentos } = colecoes.length
     ? await supabase.from("acabamentos")
-        .select("id, nome, colecao, cor_hex, textura_miniatura_path, tamanho_real_cm, tamanho_real_altura_cm")
+        .select("id, nome, colecao, cor_hex, textura_cor_path, textura_miniatura_path, tamanho_real_cm, tamanho_real_altura_cm, rugosidade, metalico")
         .eq("ativo", true).in("colecao", colecoes).order("ordem")
     : { data: [] };
   return { familias: (familias ?? []) as FamiliaMarca[], acabamentos: (acabamentos ?? []) as AcabamentoLib[] };
@@ -76,9 +77,11 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
   const { familias, acabamentos } = await buscarAcabamentos(p.marca_id, partes);
 
   return (
+    <Configurador partes={partes.map((x) => ({ rotulo: x.rotulo, materiais: x.materiais ?? [] }))}>
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
       <div className="grid gap-8 lg:grid-cols-[1.4fr_1fr]">
-        <section className="aspect-[4/3] w-full lg:aspect-auto lg:min-h-[560px]">
+        {/* O 3D fica preso na tela enquanto o arquiteto rola os acabamentos, para ver a troca na hora. */}
+        <section className="sticky top-0 z-10 -mx-4 h-[45vh] min-h-[260px] bg-white px-4 py-2 lg:top-6 lg:mx-0 lg:h-[calc(100vh-3rem)] lg:max-h-[720px] lg:min-h-[480px] lg:self-start lg:bg-transparent lg:p-0">
           {glb ? (
             <Visualizador3D
               url={glb}
@@ -179,5 +182,6 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
         </section>
       </div>
     </main>
+    </Configurador>
   );
 }
