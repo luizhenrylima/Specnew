@@ -32,10 +32,10 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 const FORMATOS = [
   { formato: "dwg", titulo: "DWG", uso: "AutoCAD", extensao: ".dwg" },
   { formato: "dxf", titulo: "DXF 3D", uso: "AutoCAD, Revit, ArchiCAD · em milímetros", extensao: ".dxf" },
-  { formato: "obj", titulo: "OBJ com texturas", uso: "Lumion, SketchUp, 3ds Max, Revit · em metros", extensao: ".zip" },
+  { formato: "obj", titulo: "OBJ com texturas", uso: "Lumion, SketchUp, 3ds Max, Revit · em metros", extensao: "-obj.zip" },
   { formato: "fbx", titulo: "FBX", uso: "Lumion, 3ds Max, Twinmotion, D5", extensao: ".fbx" },
-  { formato: "dae", titulo: "DAE (Collada)", uso: "Lumion, SketchUp", extensao: ".zip" },
-  { formato: "3ds", titulo: "3DS", uso: "3ds Max, Lumion", extensao: ".zip" },
+  { formato: "dae", titulo: "DAE (Collada)", uso: "Lumion, SketchUp", extensao: "-dae.zip" },
+  { formato: "3ds", titulo: "3DS", uso: "3ds Max, Lumion", extensao: "-3ds.zip" },
   { formato: "glb", titulo: "GLB", uso: "Visualizadores web, Blender, realidade aumentada", extensao: ".glb" },
 ];
 
