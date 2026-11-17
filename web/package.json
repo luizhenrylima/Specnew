@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@gltf-transform/core": "4.1.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -26,6 +27,7 @@
     "@types/three": "0.169.0",
     "eslint": "^9",
     "eslint-config-next": "15.5.29",
+    "fflate": "0.8.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

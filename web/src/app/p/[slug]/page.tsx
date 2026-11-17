@@ -28,6 +28,19 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return { title: `${p.nome} · ${marca?.nome ?? ""} · Specifica`, description: p.descricao ?? undefined };
 }
 
+// Ordem e textos dos downloads. Formatos ainda não gerados aparecem como "Em breve".
+const FORMATOS = [
+  { formato: "dwg", titulo: "DWG", uso: "AutoCAD", extensao: ".dwg" },
+  { formato: "dxf", titulo: "DXF 3D", uso: "AutoCAD, Revit, ArchiCAD · em milímetros", extensao: ".dxf" },
+  { formato: "obj", titulo: "OBJ com texturas", uso: "Lumion, SketchUp, 3ds Max, Revit · em metros", extensao: ".zip" },
+  { formato: "fbx", titulo: "FBX", uso: "Lumion, 3ds Max, Twinmotion, D5", extensao: ".fbx" },
+  { formato: "dae", titulo: "DAE (Collada)", uso: "Lumion, SketchUp", extensao: ".zip" },
+  { formato: "3ds", titulo: "3DS", uso: "3ds Max, Lumion", extensao: ".zip" },
+  { formato: "glb", titulo: "GLB", uso: "Visualizadores web, Blender, realidade aumentada", extensao: ".glb" },
+];
+
+const tamanho = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
 const cm = (mm: number | null) => (mm == null ? "—" : (mm / 10).toLocaleString("pt-BR", { maximumFractionDigits: 1 }));
 
 // Link público do produto: é este endereço que as lojas colam nos catálogos.
@@ -40,7 +53,7 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
   const esp = (p.especificacoes ?? {}) as Especificacoes;
   const medidas = [...((p.produto_medidas as { rotulo: string; ordem: number }[]) ?? [])].sort((a, b) => a.ordem - b.ordem);
   const glb = urlPublica(p.glb_path);
-  const downloads = (p.arquivos_download as { formato: string; path: string }[]) ?? [];
+  const downloads = (p.arquivos_download as { formato: string; path: string; tamanho_bytes: number | null }[]) ?? [];
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
@@ -114,21 +127,32 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
 
           <div className="rounded-lg border border-neutral-200 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Downloads</h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {glb && (
-                <a href={glb} download className="rounded-md bg-neutral-900 px-3 py-2 text-xs font-medium text-white hover:bg-neutral-700">
-                  GLB (3D)
-                </a>
-              )}
-              {downloads.map((d) => (
-                <a key={d.formato} href={urlPublica(d.path) ?? "#"} download className="rounded-md bg-neutral-900 px-3 py-2 text-xs font-medium text-white hover:bg-neutral-700">
-                  {d.formato.toUpperCase()}
-                </a>
-              ))}
-              {["DWG", "SKP", "FBX / DAE (Lumion)"].filter((f) => !downloads.some((d) => f.toLowerCase().includes(d.formato))).map((f) => (
-                <span key={f} className="rounded-md border border-dashed border-neutral-300 px-3 py-2 text-xs text-neutral-400">{f} em breve</span>
-              ))}
-            </div>
+            <ul className="mt-3 divide-y divide-neutral-100">
+              {FORMATOS.map((f) => {
+                const arq = f.formato === "glb"
+                  ? (p.glb_path ? { path: p.glb_path, tamanho_bytes: null } : null)
+                  : downloads.find((d) => d.formato === f.formato);
+                const url = arq ? urlPublica(arq.path) : null;
+                return (
+                  <li key={f.formato} className="flex items-center justify-between gap-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{f.titulo}</p>
+                      <p className="text-xs text-neutral-500">{f.uso}</p>
+                    </div>
+                    {url ? (
+                      <a
+                        href={`${url}?download=${encodeURIComponent(slug + f.extensao)}`}
+                        className="shrink-0 rounded-md bg-neutral-900 px-3 py-2 text-xs font-medium text-white hover:bg-neutral-700"
+                      >
+                        Baixar{arq?.tamanho_bytes ? ` · ${tamanho(arq.tamanho_bytes)}` : ""}
+                      </a>
+                    ) : (
+                      <span className="shrink-0 rounded-md border border-dashed border-neutral-300 px-3 py-2 text-xs text-neutral-400">Em breve</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         </section>
       </div>
