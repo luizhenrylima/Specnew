@@ -31,6 +31,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 // Ordem e textos dos downloads. Formatos ainda não gerados aparecem como "Em breve".
 const FORMATOS = [
   { formato: "dwg", titulo: "DWG", uso: "AutoCAD", extensao: ".dwg" },
+  { formato: "skp", titulo: "SKP", uso: "SketchUp 2017 ou mais recente · em centímetros", extensao: ".skp" },
   { formato: "dxf", titulo: "DXF 3D", uso: "AutoCAD, Revit, ArchiCAD · em milímetros", extensao: ".dxf" },
   { formato: "obj", titulo: "OBJ com texturas", uso: "Lumion, SketchUp, 3ds Max, Revit · em metros", extensao: "-obj.zip" },
   { formato: "fbx", titulo: "FBX", uso: "Lumion, 3ds Max, Twinmotion, D5", extensao: ".fbx" },

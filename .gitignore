@@ -7,3 +7,4 @@ node_modules/
 amostras/
 # programas usados só para gerar os downloads (Blender, ODA)
 ferramentas/
+__pycache__/
