@@ -5,3 +5,5 @@ node_modules/
 .DS_Store
 # arquivos de produtos enviados (ficam no Supabase Storage, não no Git)
 amostras/
+# programas usados só para gerar os downloads (Blender, ODA)
+ferramentas/
