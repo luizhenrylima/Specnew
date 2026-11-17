@@ -1,49 +1,137 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { criarClientePublico } from "@/lib/supabase/server";
+import { urlPublica } from "@/lib/supabase/env";
+import Visualizador3D from "@/components/Visualizador3D";
 
 export const dynamic = "force-dynamic";
 
-// Link público do produto: é este endereço que as lojas colam nos catálogos.
-// O visualizador 3D entra aqui na próxima etapa.
-export default async function PaginaProduto({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
-  const { slug } = await params;
-  const supabase = criarClientePublico();
+type Aplicacao = { tipo: string; onde: string | null; opcoes: string[] };
+type Especificacoes = { revestimentos?: string[]; aplicacoes?: Aplicacao[]; observacoes?: string[] };
 
-  const { data: produto } = await supabase
+async function buscar(slug: string) {
+  const supabase = criarClientePublico();
+  const { data } = await supabase
     .from("produtos")
     .select(
-      "nome, referencia, descricao, largura_mm, profundidade_mm, altura_mm, marcas(nome), arquivos_download(formato)"
+      "nome, linha, variante, referencia, categoria, descricao, largura_mm, profundidade_mm, altura_mm, glb_path, especificacoes, marcas(nome, slug), produto_medidas(rotulo, ordem), arquivos_download(formato, path, tamanho_bytes)"
     )
     .eq("slug", slug)
     .maybeSingle();
+  return data;
+}
 
-  if (!produto) notFound();
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const p = await buscar((await params).slug);
+  if (!p) return { title: "Produto não encontrado · Specifica" };
+  const marca = p.marcas as unknown as { nome: string } | null;
+  return { title: `${p.nome} · ${marca?.nome ?? ""} · Specifica`, description: p.descricao ?? undefined };
+}
 
-  const marca = produto.marcas as unknown as { nome: string } | null;
-  const medidas = [produto.largura_mm, produto.profundidade_mm, produto.altura_mm];
+const cm = (mm: number | null) => (mm == null ? "—" : (mm / 10).toLocaleString("pt-BR", { maximumFractionDigits: 1 }));
+
+// Link público do produto: é este endereço que as lojas colam nos catálogos.
+export default async function PaginaProduto({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const p = await buscar(slug);
+  if (!p) notFound();
+
+  const marca = p.marcas as unknown as { nome: string; slug: string } | null;
+  const esp = (p.especificacoes ?? {}) as Especificacoes;
+  const medidas = [...((p.produto_medidas as { rotulo: string; ordem: number }[]) ?? [])].sort((a, b) => a.ordem - b.ordem);
+  const glb = urlPublica(p.glb_path);
+  const downloads = (p.arquivos_download as { formato: string; path: string }[]) ?? [];
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <p className="text-sm text-neutral-500">{marca?.nome}</p>
-      <h1 className="text-2xl font-semibold">{produto.nome}</h1>
-      {produto.referencia && (
-        <p className="text-sm text-neutral-500">Ref. {produto.referencia}</p>
-      )}
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
+      <div className="grid gap-8 lg:grid-cols-[1.4fr_1fr]">
+        <section className="aspect-[4/3] w-full lg:aspect-auto lg:min-h-[560px]">
+          {glb ? (
+            <Visualizador3D
+              url={glb}
+              medidasMm={{ largura: p.largura_mm, profundidade: p.profundidade_mm, altura: p.altura_mm }}
+            />
+          ) : (
+            <div className="grid h-full place-items-center rounded-xl bg-neutral-100 text-neutral-400">Modelo 3D em breve</div>
+          )}
+        </section>
 
-      <div className="mt-6 flex aspect-video items-center justify-center rounded-lg bg-neutral-100 text-neutral-400">
-        Visualizador 3D (em construção)
+        <section className="flex flex-col gap-6">
+          <header>
+            <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">{marca?.nome}</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{p.nome}</h1>
+            {p.referencia && <p className="mt-1 text-sm text-neutral-500">Ref. {p.referencia}</p>}
+          </header>
+
+          {p.descricao && <p className="leading-relaxed text-neutral-700">{p.descricao}</p>}
+
+          <div className="rounded-lg border border-neutral-200 p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Medidas do modelo 3D</h2>
+            <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+              {[["Largura", p.largura_mm], ["Profundidade", p.profundidade_mm], ["Altura", p.altura_mm]].map(([r, v]) => (
+                <div key={r as string}>
+                  <dt className="text-[11px] text-neutral-500">{r}</dt>
+                  <dd className="text-lg font-medium">{cm(v as number | null)} <span className="text-xs text-neutral-500">cm</span></dd>
+                </div>
+              ))}
+            </dl>
+            {medidas.length > 0 && (
+              <>
+                <h3 className="mt-4 text-[11px] font-medium text-neutral-500">Medidas disponíveis (L × P × A, cm)</h3>
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {medidas.map((m) => (
+                    <li key={m.rotulo} className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs">{m.rotulo.toLowerCase()}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[11px] text-neutral-400">Outras medidas sob consulta à fábrica.</p>
+              </>
+            )}
+          </div>
+
+          {(esp.revestimentos?.length || esp.aplicacoes?.length) && (
+            <div className="rounded-lg border border-neutral-200 p-4 text-sm">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Acabamentos</h2>
+              {!!esp.revestimentos?.length && (
+                <ul className="mt-3 space-y-1">
+                  {esp.revestimentos.map((r) => <li key={r}>{r}</li>)}
+                </ul>
+              )}
+              {!!esp.aplicacoes?.length && (
+                <div className="mt-4 space-y-3">
+                  {esp.aplicacoes.map((a) => (
+                    <div key={a.tipo + a.onde}>
+                      <p className="font-medium">{a.tipo}{a.onde && <span className="font-normal text-neutral-500"> · {a.onde}</span>}</p>
+                      <p className="text-neutral-600">{a.opcoes.join(" · ")}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!!esp.observacoes?.length && (
+                <p className="mt-4 text-xs text-neutral-500">{esp.observacoes.join(" · ")}</p>
+              )}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-neutral-200 p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Downloads</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {glb && (
+                <a href={glb} download className="rounded-md bg-neutral-900 px-3 py-2 text-xs font-medium text-white hover:bg-neutral-700">
+                  GLB (3D)
+                </a>
+              )}
+              {downloads.map((d) => (
+                <a key={d.formato} href={urlPublica(d.path) ?? "#"} download className="rounded-md bg-neutral-900 px-3 py-2 text-xs font-medium text-white hover:bg-neutral-700">
+                  {d.formato.toUpperCase()}
+                </a>
+              ))}
+              {["DWG", "SKP", "FBX / DAE (Lumion)"].filter((f) => !downloads.some((d) => f.toLowerCase().includes(d.formato))).map((f) => (
+                <span key={f} className="rounded-md border border-dashed border-neutral-300 px-3 py-2 text-xs text-neutral-400">{f} em breve</span>
+              ))}
+            </div>
+          </div>
+        </section>
       </div>
-
-      {medidas.every(Boolean) && (
-        <p className="mt-4 text-sm">
-          L {medidas[0]} × P {medidas[1]} × A {medidas[2]} mm
-        </p>
-      )}
-      {produto.descricao && <p className="mt-4 leading-relaxed">{produto.descricao}</p>}
     </main>
   );
 }
