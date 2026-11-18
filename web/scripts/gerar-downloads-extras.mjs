@@ -1,5 +1,6 @@
 // Gera FBX, DAE, 3DS (Blender), DWG (ODA File Converter) e SKP (SketchUp C SDK) de cada produto e envia para o Storage.
-// Roda depois de gerar-downloads.mjs (usa o DXF que ele publicou para fazer o DWG).
+// O DWG é um desenho técnico 2D (vista frontal, lateral e planta, só linhas visíveis, em cm), feito por
+// desenho-2d.mjs a partir do GLB e convertido de DXF para DWG pelo ODA.
 // As ferramentas ficam em ../ferramentas (fora do Git). Os arquivos de trabalho ficam em ../amostras/<marca>/conversao.
 //
 // Uso (dentro de web/):  node scripts/gerar-downloads-extras.mjs <slug-da-marca> [slug-do-produto] [--formatos=fbx,dae,3ds,dwg,skp]
@@ -9,6 +10,9 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { zipSync } from "fflate";
 import { createClient } from "@supabase/supabase-js";
+import { NodeIO } from "@gltf-transform/core";
+import { extrair } from "./geometria.mjs";
+import { gerarDxf2d } from "./desenho-2d.mjs";
 
 const TODOS = ["fbx", "dae", "3ds", "dwg", "skp"];
 const flags = process.argv.slice(2).filter((a) => a.startsWith("--"));
@@ -25,10 +29,19 @@ const raiz = path.resolve(aqui, "..", "..");
 const BLENDER_DIR = path.join(raiz, "ferramentas", "blender-4.2.23-windows-x64");
 const BLENDER = process.env.BLENDER ?? path.join(BLENDER_DIR, "blender.exe");
 const PYTHON = process.env.BLENDER_PYTHON ?? path.join(BLENDER_DIR, "4.2", "python", "bin", "python.exe");
-const ODA = process.env.ODA ?? path.join(raiz, "ferramentas", "oda", "ODAFileConverter.exe");
+// ODA: variável ODA, ou ../ferramentas/oda, ou a versão instalada em Arquivos de Programas.
+const odaInstalado = () => {
+  const base = "C:/Program Files/ODA";
+  if (!fs.existsSync(base)) return null;
+  const pasta = fs.readdirSync(base).filter((d) => d.startsWith("ODAFileConverter")).sort().at(-1);
+  return pasta ? path.join(base, pasta, "ODAFileConverter.exe") : null;
+};
+const odaLocal = path.join(raiz, "ferramentas", "oda", "ODAFileConverter.exe");
+const ODA = process.env.ODA ?? (fs.existsSync(odaLocal) ? odaLocal : odaInstalado() ?? odaLocal);
 const SKP_SDK = process.env.SKETCHUP_SDK ?? path.join(raiz, "ferramentas", "sketchup-sdk");
 const trabalho = path.join(raiz, "amostras", slugMarca, "conversao");
-const precisa = [BLENDER, ...(quer("dwg") ? [ODA] : []), ...(quer("skp") ? [PYTHON, path.join(SKP_SDK, "SketchUpAPI.dll")] : [])];
+const usaBlender = ["fbx", "dae", "3ds", "skp"].some(quer);
+const precisa = [...(usaBlender ? [BLENDER] : []), ...(quer("dwg") ? [ODA] : []), ...(quer("skp") ? [PYTHON, path.join(SKP_SDK, "SketchUpAPI.dll")] : [])];
 for (const f of precisa) if (!fs.existsSync(f)) { console.error(`Ferramenta não encontrada: ${f}`); process.exit(1); }
 
 const env = Object.fromEntries(
@@ -72,7 +85,10 @@ for (const p of produtos) {
   fs.rmSync(path.join(dir, "_skp"), { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   await baixar(publico(p.glb_path), path.join(dir, "modelo.glb"));
-  if (quer("dwg")) await baixar(publico(`${slugMarca}/downloads/${p.slug}.dxf`), path.join(dxfDir, `${p.slug}.dxf`));
+  if (quer("dwg")) {
+    const g = extrair(await new NodeIO().readBinary(new Uint8Array(fs.readFileSync(path.join(dir, "modelo.glb")))));
+    fs.writeFileSync(path.join(dxfDir, `${p.slug}.dxf`), gerarDxf2d(g));
+  }
   linhasLista.push([path.join(dir, "modelo.glb"), dir, p.slug].join("|"));
 }
 const lista = path.join(trabalho, "lista.txt");
