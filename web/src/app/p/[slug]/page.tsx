@@ -7,7 +7,7 @@ import { type AcabamentoLib, type FamiliaMarca, type ParteProduto } from "@/comp
 import { Configurador } from "@/components/Configurador";
 import PainelOpcoes, { type Especificacoes } from "@/components/PainelOpcoes";
 import Downloads, { type ArquivoDownload } from "@/components/Downloads";
-import { Logo } from "@/components/Logo";
+import TelaCarregamento from "@/components/TelaCarregamento";
 
 export const dynamic = "force-dynamic";
 
@@ -90,18 +90,13 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
 
   return (
     <Configurador partes={partes.map((x) => ({ rotulo: x.rotulo, materiais: x.materiais ?? [] }))}>
+      {/* A página é embutida no site da loja: sem cabeçalho, sem logo fixo e sem links para outras páginas.
+          A marca Specifica aparece só na tela de carregamento. */}
+      <TelaCarregamento esperar3d={!!glb} />
       <div className="min-h-screen bg-white pb-[72px]">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b border-nevoa bg-white/95 px-4 backdrop-blur lg:px-8">
-          {/* Sem links: a página do produto é embutida nos catálogos e o arquiteto fica só neste produto. */}
-          <span className="text-grafite">
-            <Logo className="h-9" />
-          </span>
-          {marca && <span className="text-xs uppercase tracking-[0.2em] text-pedra">{marca.nome}</span>}
-        </header>
-
-        <div className="lg:grid lg:h-[calc(100vh-64px-72px)] lg:grid-cols-[minmax(0,1fr)_460px]">
+        <div className="lg:grid lg:h-[calc(100vh-72px)] lg:grid-cols-[minmax(0,1fr)_460px]">
           {/* Palco do 3D: preso no topo no celular, ocupa a altura toda no computador. */}
-          <section className="sticky top-16 z-10 h-[46vh] min-h-[280px] bg-linho lg:static lg:h-full">
+          <section className="sticky top-0 z-10 h-[46vh] min-h-[280px] bg-linho lg:static lg:h-full">
             {glb ? (
               <Visualizador3D
                 url={glb}

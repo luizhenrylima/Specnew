@@ -7,6 +7,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { useConfigurador, type AcabamentoVisual } from "./Configurador";
+import { EVENTO_3D_PRONTO } from "./TelaCarregamento";
 
 type Props = {
   url: string;
@@ -161,9 +162,15 @@ export default function Visualizador3D({ url, medidasMm }: Props) {
         resetRef.current = enquadrar;
         enquadrar();
         setEstado("pronto");
+        // espera o primeiro quadro desenhado antes de tirar a tela de carregamento
+        requestAnimationFrame(() => requestAnimationFrame(() => window.dispatchEvent(new Event(EVENTO_3D_PRONTO))));
       },
       undefined,
-      () => vivo && setEstado("erro"),
+      () => {
+        if (!vivo) return;
+        setEstado("erro");
+        window.dispatchEvent(new Event(EVENTO_3D_PRONTO));
+      },
     );
 
     const loop = () => {
