@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { criarClientePublico } from "@/lib/supabase/server";
 import { supabaseConfigurado } from "@/lib/supabase/env";
 
@@ -24,6 +25,12 @@ export default async function Home() {
       <p className="text-neutral-500">
         Visualizador 3D e downloads técnicos para arquitetos.
       </p>
+      <Link
+        href="/m"
+        className="self-start rounded-lg bg-neutral-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-neutral-700"
+      >
+        Ver marcas →
+      </Link>
       <div
         className={`rounded-lg border px-4 py-3 text-sm ${
           status.ok

@@ -26,7 +26,10 @@ export default async function PaginaMarca({ params }: { params: Promise<{ marca:
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      <h1 className="text-3xl font-semibold tracking-tight">{marca.nome}</h1>
+      <Link href="/m" className="text-sm text-neutral-500 hover:underline">
+        ← Marcas
+      </Link>
+      <h1 className="mt-4 text-3xl font-semibold tracking-tight">{marca.nome}</h1>
       <p className="mt-1 text-sm text-neutral-500">{produtos?.length ?? 0} produtos com visualizador 3D</p>
 
       {[...porCategoria].map(([cat, itens]) => (
