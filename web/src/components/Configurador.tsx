@@ -8,6 +8,7 @@ export type AcabamentoVisual = {
   nome: string;
   cor: string | null;
   textura: string | null;        // URL da imagem (2048 px)
+  miniatura: string | null;      // URL da miniatura (amostras do painel)
   larguraCm: number | null;      // quantos cm uma repetição da imagem cobre
   alturaCm: number | null;
   rugosidade: number;            // 0 espelhado, 1 fosco

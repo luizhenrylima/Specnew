@@ -1,19 +1,27 @@
 @import "tailwindcss";
 
+/* Identidade Specifica: neutros claros, grafite e um toque de cobre. */
 :root {
   --background: #ffffff;
-  --foreground: #1c1c1c;
+  --foreground: #1d1d1f;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-poppins);
+
+  --color-tinta: #1d1d1f;      /* texto principal */
+  --color-grafite: #3a3a3c;    /* botões, cotas */
+  --color-pedra: #8e8e93;      /* texto secundário */
+  --color-nevoa: #eeeeee;      /* fundos e divisórias */
+  --color-linho: #f6f6f6;      /* palco do 3D */
+  --color-cobre: #b5764f;      /* destaque */
+  --color-champanhe: #d7beaa;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-poppins), system-ui, sans-serif;
 }

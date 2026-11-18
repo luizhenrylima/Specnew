@@ -129,13 +129,13 @@ export default function Visualizador3D({ url, medidasMm }: Props) {
         const P = medidasMm?.profundidade ?? tam.z * 1000;
         const A = medidasMm?.altura ?? tam.y * 1000;
         const g = new THREE.Group();
-        const mat = new THREE.LineBasicMaterial({ color: 0x2f6fde });
+        const mat = new THREE.LineBasicMaterial({ color: 0x3a3a3c, transparent: true, opacity: 0.55 });
         const off = raio * 0.08;
         const linha = (a: THREE.Vector3, b: THREE.Vector3, texto: string) => {
           g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), mat));
           const el = document.createElement("div");
           el.textContent = texto;
-          el.className = "rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-medium text-[#2f6fde] shadow-sm";
+          el.className = "rounded-full bg-white px-2.5 py-1 text-[11px] font-medium tracking-wide text-[#3a3a3c] shadow-[0_1px_6px_rgba(0,0,0,0.08)]";
           const r = new CSS2DObject(el);
           r.position.copy(a.clone().add(b).multiplyScalar(0.5));
           g.add(r);
@@ -240,41 +240,47 @@ export default function Visualizador3D({ url, medidasMm }: Props) {
     }
   }, [porMaterial, estado]);
 
+  const botao = (ativo = false) =>
+    `inline-flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-xs font-medium transition ${
+      ativo ? "bg-grafite text-white" : "text-grafite hover:bg-nevoa"
+    }`;
+
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-xl bg-gradient-to-b from-neutral-50 to-neutral-200">
+    <div className="relative h-full w-full overflow-hidden bg-[radial-gradient(ellipse_at_50%_35%,#ffffff_0%,#f3f3f3_55%,#e7e7e7_100%)]">
       <div ref={caixaRef} className="absolute inset-0 touch-none" />
       {estado === "carregando" && (
-        <div className="absolute inset-0 grid place-items-center text-sm text-neutral-500">Carregando modelo 3D…</div>
+        <div className="absolute inset-0 grid place-items-center">
+          <span className="flex items-center gap-3 text-xs uppercase tracking-[0.2em] text-pedra">
+            <span className="h-4 w-4 animate-spin rounded-full border border-pedra/40 border-t-grafite" />
+            Carregando modelo 3D
+          </span>
+        </div>
       )}
       {estado === "erro" && (
-        <div className="absolute inset-0 grid place-items-center text-sm text-red-600">Não foi possível carregar o modelo.</div>
+        <div className="absolute inset-0 grid place-items-center text-sm text-pedra">Não foi possível carregar o modelo.</div>
       )}
       {estado === "pronto" && (
-        <div className="absolute bottom-3 left-3 right-3 flex flex-wrap gap-2">
-          <button
-            onClick={() => setCotas((v) => !v)}
-            className="whitespace-nowrap rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium shadow hover:bg-white"
-          >
-            {cotas ? "Ocultar medidas" : "Mostrar medidas"}
-          </button>
-          <button
-            onClick={() => resetRef.current()}
-            className="whitespace-nowrap rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium shadow hover:bg-white"
-          >
-            Centralizar
-          </button>
-          {config && Object.keys(config.escolhas).length > 0 && (
-            <button
-              onClick={config.limpar}
-              className="whitespace-nowrap rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium shadow hover:bg-white"
-            >
-              Acabamento original
+        <div className="absolute inset-x-0 bottom-4 flex justify-center px-3">
+          <div className="flex max-w-full gap-1 overflow-x-auto rounded-full bg-white/90 p-1 shadow-[0_2px_16px_rgba(0,0,0,0.08)] backdrop-blur">
+            <button onClick={() => setCotas((v) => !v)} aria-pressed={cotas} className={botao(cotas)}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M1 10h12M1 8v4M13 8v4M4 10V9M7 10V8.5M10 10V9" /></svg>
+              Medidas
             </button>
-          )}
+            <button onClick={() => resetRef.current()} className={botao()}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" /><circle cx="7" cy="7" r="1.5" /></svg>
+              Centralizar
+            </button>
+            {config && Object.keys(config.escolhas).length > 0 && (
+              <button onClick={config.limpar} className={botao()}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M2.5 7a4.5 4.5 0 1 0 1.3-3.2M2.5 2v2.5H5" /></svg>
+                Original
+              </button>
+            )}
+          </div>
         </div>
       )}
       {estado === "pronto" && (
-        <p className="pointer-events-none absolute right-3 top-3 hidden text-[11px] text-neutral-500 sm:block">
+        <p className="pointer-events-none absolute left-5 top-5 hidden text-[10px] uppercase tracking-[0.2em] text-pedra sm:block">
           Arraste para girar · role para aproximar
         </p>
       )}

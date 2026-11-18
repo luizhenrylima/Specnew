@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { urlPublica } from "@/lib/supabase/env";
 import { useConfigurador, type AcabamentoVisual } from "./Configurador";
 
@@ -15,6 +16,7 @@ export type ParteProduto = { rotulo: string; familias: string[]; materiais: stri
 // Notas da tabela que não interessam ao arquiteto (preço, cálculo) ou que já viraram regra.
 const NOTA_INTERNA = /medidas intermediarias|calculo do par|inox tonalizado citado|nao faz/i;
 const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+export const notasVisiveis = (notas: string[]) => notas.filter((n) => !NOTA_INTERNA.test(semAcento(n)));
 
 // O brilho vem da família (a mesma laca é fosca na pintura e brilhante no highgloss/vidro).
 function visual(a: AcabamentoLib, f: FamiliaMarca): AcabamentoVisual {
@@ -23,112 +25,113 @@ function visual(a: AcabamentoLib, f: FamiliaMarca): AcabamentoVisual {
   return {
     id: `${a.id}:${f.familia}`, nome: a.nome, cor: a.cor_hex,
     textura: a.textura_cor_path ? urlPublica(a.textura_cor_path) : null,
+    miniatura: a.textura_miniatura_path ? urlPublica(a.textura_miniatura_path) : null,
     larguraCm: a.tamanho_real_cm, alturaCm: a.tamanho_real_altura_cm,
     rugosidade: rug, metalico: a.metalico ?? 0, verniz: b === "vidro" || b === "brilho",
   };
 }
 
-function Amostra({ a, grande, ativo }: { a: AcabamentoLib; grande?: boolean; ativo?: boolean }) {
+// Amostra redonda, como as esferas de material da identidade.
+export function Amostra({ cor, miniatura, tamanho = "md", ativo }: { cor: string | null; miniatura: string | null; tamanho?: "sm" | "md"; ativo?: boolean }) {
   return (
     <span
-      className={`block shrink-0 rounded border bg-cover bg-center ${grande ? "aspect-square w-full" : "h-6 w-6"} ${ativo ? "border-neutral-900 ring-2 ring-neutral-900 ring-offset-1" : "border-black/10"}`}
-      style={{
-        backgroundColor: a.cor_hex ?? "#ddd",
-        backgroundImage: a.textura_miniatura_path ? `url(${urlPublica(a.textura_miniatura_path)})` : undefined,
-      }}
+      className={`block shrink-0 rounded-full bg-cover bg-center shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] transition ${
+        tamanho === "sm" ? "h-6 w-6" : "aspect-square w-full"
+      } ${ativo ? "outline-2 outline-offset-[3px] outline-cobre outline" : ""}`}
+      style={{ backgroundColor: cor ?? "#ddd", backgroundImage: miniatura ? `url(${miniatura})` : undefined }}
     />
   );
 }
 
-// Acabamentos permitidos em cada parte do produto, conforme a regra da marca. Clicar aplica no modelo 3D.
-export default function AcabamentosProduto({
-  partes, familias, acabamentos, notas,
-}: { partes: ParteProduto[]; familias: FamiliaMarca[]; acabamentos: AcabamentoLib[]; notas: string[] }) {
-  const config = useConfigurador();
+export type DadosAcabamento = { familias: FamiliaMarca[]; acabamentos: AcabamentoLib[] };
+
+function agrupar({ familias, acabamentos }: DadosAcabamento) {
   const fam = new Map(familias.map((f) => [f.familia, f]));
   const porColecao = new Map<string, AcabamentoLib[]>();
   for (const a of acabamentos) porColecao.set(a.colecao, [...(porColecao.get(a.colecao) ?? []), a]);
-  const notasVisiveis = notas.filter((n) => !NOTA_INTERNA.test(semAcento(n)));
+  return { fam, porColecao };
+}
+
+// Conteúdo de uma parte: abas das famílias permitidas e as amostras da família escolhida. Clicar aplica no 3D.
+export function OpcoesParte({ parte, dados }: { parte: ParteProduto; dados: DadosAcabamento }) {
+  const config = useConfigurador();
+  const { fam, porColecao } = agrupar(dados);
+  const escolhido = config?.escolhas[parte.rotulo]?.acabamento;
+  const opcoes = parte.familias
+    .map((f) => fam.get(f))
+    .filter((f): f is FamiliaMarca => !!f)
+    .sort((a, b) => a.ordem - b.ordem)
+    .map((f) => ({ f, itens: f.colecoes.flatMap((c) => porColecao.get(c) ?? []) }));
+
+  const inicial = opcoes.find((o) => escolhido?.id.endsWith(`:${o.f.familia}`)) ?? opcoes.find((o) => o.itens.length) ?? opcoes[0];
+  const [aba, setAba] = useState(inicial?.f.familia);
+  const atual = opcoes.find((o) => o.f.familia === aba) ?? inicial;
+
+  if (!opcoes.length) return <p className="text-sm text-pedra">Acabamentos sob consulta.</p>;
 
   return (
-    <div className="rounded-lg border border-neutral-200 p-4 text-sm">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Acabamentos</h2>
-        <p className="text-[11px] text-neutral-400">Clique para aplicar no 3D</p>
-      </div>
-      <div className="mt-3 divide-y divide-neutral-100">
-        {[...partes].sort((a, b) => a.ordem - b.ordem).map((p) => {
-          const escolhido = config?.escolhas[p.rotulo]?.acabamento;
-          const opcoes = p.familias
-            .map((f) => fam.get(f))
-            .filter((f): f is FamiliaMarca => !!f)
-            .sort((a, b) => a.ordem - b.ordem);
+    <div>
+      {!parte.materiais.length && (
+        <p className="mb-3 text-xs text-pedra">Esta parte não está separada no modelo 3D: a troca não aparece na visualização.</p>
+      )}
+
+      {opcoes.length > 1 && (
+        <div role="tablist" className="-mx-1 mb-5 flex gap-1 overflow-x-auto px-1 pb-1">
+          {opcoes.map(({ f, itens }) => {
+            const ativa = f.familia === atual?.f.familia;
+            return (
+              <button
+                key={f.familia}
+                role="tab"
+                aria-selected={ativa}
+                onClick={() => setAba(f.familia)}
+                className={`shrink-0 rounded-full px-4 py-2 text-xs transition ${
+                  ativa ? "bg-grafite text-white" : "bg-nevoa text-grafite hover:bg-[#e4e4e4]"
+                }`}
+              >
+                {f.rotulo}
+                <span className={ativa ? "text-white/60" : "text-pedra"}> {itens.length || "—"}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {atual && !atual.itens.length ? (
+        <p className="text-sm text-pedra">{atual.f.rotulo}: sob consulta à fábrica.</p>
+      ) : (
+        atual?.f.colecoes.map((c) => {
+          const lista = porColecao.get(c) ?? [];
+          if (!lista.length) return null;
           return (
-            <div key={p.rotulo} className="py-3 first:pt-0 last:pb-0">
-              <p className="font-medium">
-                {p.rotulo}
-                {escolhido && <span className="font-normal text-neutral-500"> · {escolhido.nome}</span>}
-              </p>
-              {!p.materiais.length && (
-                <p className="text-[11px] text-neutral-400">Esta parte não está separada no modelo 3D.</p>
-              )}
-              <div className="mt-2 space-y-1.5">
-                {opcoes.map((f) => {
-                  const itens = f.colecoes.flatMap((c) => porColecao.get(c) ?? []);
-                  if (!itens.length) {
-                    return <p key={f.familia} className="text-neutral-600">{f.rotulo} <span className="text-xs text-neutral-400">· sob consulta</span></p>;
-                  }
-                  const ativoNaFamilia = escolhido && escolhido.id.endsWith(`:${f.familia}`);
+            <div key={c} className="mb-5 last:mb-0">
+              {atual.f.colecoes.length > 1 && <p className="mb-3 text-[10px] font-medium uppercase tracking-[0.18em] text-pedra">{c}</p>}
+              <ul className="grid grid-cols-5 gap-x-3 gap-y-4">
+                {lista.map((a) => {
+                  const v = visual(a, atual.f);
+                  const ativo = escolhido?.id === v.id;
                   return (
-                    <details key={f.familia} className="group" open={!!ativoNaFamilia || undefined}>
-                      <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-                        <span className="min-w-0 flex-1 text-neutral-700">
-                          {f.rotulo} <span className="text-xs text-neutral-400">· {itens.length}</span>
+                    <li key={a.id}>
+                      <button
+                        type="button"
+                        onClick={() => config?.escolher(parte.rotulo, v)}
+                        aria-pressed={ativo}
+                        title={`${a.nome} · ${a.colecao}`}
+                        className="group block w-full text-center"
+                      >
+                        <span className="mx-auto block max-w-[60px] transition group-hover:scale-[1.04]">
+                          <Amostra cor={v.cor} miniatura={v.miniatura} ativo={ativo} />
                         </span>
-                        <span className="flex gap-1 group-open:hidden">
-                          {itens.slice(0, 6).map((a) => <Amostra key={a.id} a={a} />)}
-                        </span>
-                        <span className="text-xs text-neutral-400 transition group-open:rotate-90" aria-hidden>›</span>
-                      </summary>
-                      {f.colecoes.map((c) => {
-                        const lista = porColecao.get(c) ?? [];
-                        if (!lista.length) return null;
-                        return (
-                          <div key={c} className="mt-2">
-                            {f.colecoes.length > 1 && <p className="text-[11px] uppercase tracking-wider text-neutral-400">{c}</p>}
-                            <ul className="mt-1.5 grid grid-cols-5 gap-2 sm:grid-cols-6">
-                              {lista.map((a) => {
-                                const v = visual(a, f);
-                                const ativo = escolhido?.id === v.id;
-                                return (
-                                  <li key={a.id}>
-                                    <button
-                                      type="button"
-                                      onClick={() => config?.escolher(p.rotulo, v)}
-                                      aria-pressed={ativo}
-                                      title={`${a.nome} · ${a.colecao}`}
-                                      className="block w-full text-center"
-                                    >
-                                      <Amostra a={a} grande ativo={ativo} />
-                                      <span className={`mt-1 block text-[10px] leading-tight ${ativo ? "font-medium text-neutral-900" : "text-neutral-600"}`}>{a.nome}</span>
-                                    </button>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </div>
-                        );
-                      })}
-                    </details>
+                        <span className={`mt-2 block text-[10px] leading-tight ${ativo ? "font-medium text-tinta" : "text-pedra"}`}>{a.nome}</span>
+                      </button>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             </div>
           );
-        })}
-      </div>
-      {notasVisiveis.length > 0 && <p className="mt-4 text-xs text-neutral-500">{notasVisiveis.join(" · ")}</p>}
-      <p className="mt-3 text-[11px] text-neutral-400">Cores e texturas aproximadas. Confirme o acabamento com a amostra física.</p>
+        })
+      )}
     </div>
   );
 }
