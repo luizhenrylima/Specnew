@@ -5,7 +5,11 @@ import { useConfigurador } from "./Configurador";
 import { Amostra, OpcoesParte, notasVisiveis, type DadosAcabamento, type ParteProduto } from "./AcabamentosProduto";
 
 type Aplicacao = { tipo: string; onde: string | null; opcoes: string[] };
-export type Especificacoes = { revestimentos?: string[]; aplicacoes?: Aplicacao[]; observacoes?: string[] };
+export type Especificacoes = {
+  revestimentos?: string[]; aplicacoes?: Aplicacao[]; observacoes?: string[];
+  designer?: string | null; referencias?: string[];
+  medidas_tabela?: { rotulo: string; ref: string | null; base: string | null }[];
+};
 
 type Props = {
   medidasCm: { largura: string; profundidade: string; altura: string };
@@ -54,7 +58,16 @@ export default function PainelOpcoes({ medidasCm, medidasDisponiveis, partes, da
   const [aberta, setAberta] = useState<string | null>(null);
   const alternar = (id: string) => () => setAberta((a) => (a === id ? null : id));
   const ordenadas = [...partes].sort((a, b) => a.ordem - b.ordem);
-  const obs = notasVisiveis(notas);
+  // observações da fábrica (tabela) sem as notas internas de preço/regra; sem repetir
+  const obs = [...new Set(notasVisiveis([...(esp.observacoes ?? []), ...notas]))];
+  const refs = esp.referencias ?? [];
+  // configurações da tabela: "X — X" vira "X"; somem notas de preço e o que já está nas observações
+  const revestimentos = [...new Set((esp.revestimentos ?? []).map((r) => {
+    const [a, b] = r.split(" — ");
+    return a === b ? a : r;
+  }))].filter((r) => notasVisiveis([r]).length > 0 && !obs.includes(r));
+  const comBase = !!esp.medidas_tabela?.some((m) => m.base) || (esp.medidas_tabela?.length ?? 0) > 1;
+  const temFicha = !!(esp.designer || refs.length > 1 || revestimentos.length || esp.aplicacoes?.length || comBase || obs.length);
 
   return (
     <div>
@@ -109,25 +122,57 @@ export default function PainelOpcoes({ medidasCm, medidasDisponiveis, partes, da
         );
       })}
 
-      {!partes.length && (esp.revestimentos?.length || esp.aplicacoes?.length) ? (
-        <Sanfona titulo="Acabamentos" aberta={aberta === "esp"} alternar={alternar("esp")}>
-          <div className="space-y-4 text-sm">
-            {!!esp.revestimentos?.length && <ul className="space-y-1 text-grafite">{esp.revestimentos.map((r) => <li key={r}>{r}</li>)}</ul>}
+      {temFicha && (
+        <Sanfona
+          titulo="Ficha técnica"
+          resumo={esp.designer ? <>Design {esp.designer}</> : <>Configurações, opções e observações da fábrica</>}
+          aberta={aberta === "ficha"}
+          alternar={alternar("ficha")}
+        >
+          <div className="space-y-5 text-sm">
+            {(refs.length > 1 || esp.designer) && (
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+                {esp.designer && (<><dt className="text-pedra">Designer</dt><dd className="text-grafite">{esp.designer}</dd></>)}
+                {refs.length > 1 && (<><dt className="text-pedra">Referências</dt><dd className="text-grafite">{refs.join(" · ")}</dd></>)}
+              </dl>
+            )}
+            {revestimentos.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-pedra">Configurações de acabamento</p>
+                <ul className="mt-2 space-y-1 text-grafite">{revestimentos.map((r) => <li key={r}>{r}</li>)}</ul>
+              </div>
+            )}
             {esp.aplicacoes?.map((a) => (
               <div key={a.tipo + a.onde}>
-                <p className="font-medium text-tinta">{a.tipo}{a.onde && <span className="font-normal text-pedra"> · {a.onde}</span>}</p>
-                <p className="text-grafite">{a.opcoes.join(" · ")}</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-pedra">{a.tipo}{a.onde && <span className="normal-case tracking-normal"> · {a.onde}</span>}</p>
+                <p className="mt-2 text-grafite">{a.opcoes.join(" · ")}</p>
               </div>
             ))}
-            {!!esp.observacoes?.length && <p className="text-xs text-pedra">{esp.observacoes.join(" · ")}</p>}
+            {comBase && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-pedra">Medidas por referência · cm</p>
+                <ul className="mt-2 space-y-1 text-grafite">
+                  {esp.medidas_tabela!.map((m) => (
+                    <li key={m.rotulo + m.ref + m.base}>
+                      {m.rotulo}{m.ref && <span className="text-pedra"> · ref. {m.ref}</span>}{m.base && <span className="text-pedra"> · base {m.base.replace(/x/gi, " × ")} mm</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {obs.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-pedra">Observações</p>
+                <ul className="mt-2 space-y-1 text-grafite">{obs.map((o) => <li key={o}>{o}</li>)}</ul>
+              </div>
+            )}
           </div>
         </Sanfona>
-      ) : null}
+      )}
 
-      {(obs.length > 0 || partes.length > 0) && (
+      {partes.length > 0 && (
         <div className="space-y-2 pt-6 text-xs leading-relaxed text-pedra">
-          {obs.length > 0 && <p>{obs.join(" · ")}</p>}
-          {partes.length > 0 && <p>Cores e texturas aproximadas. Confirme o acabamento com a amostra física.</p>}
+          <p>Cores e texturas aproximadas. Confirme o acabamento com a amostra física.</p>
         </div>
       )}
     </div>
