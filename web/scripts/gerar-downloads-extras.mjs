@@ -170,14 +170,27 @@ for (let ini = 0; ini < produtos.length; ini += LOTE) {
     const dir = path.join(trabalho, p.slug);
     const base = `${slugMarca}/downloads/${p.slug}`;
     const linhas = [];
+    // arquivo solto acima de 45 MB vai compactado (.zip), pois o Storage recusa objetos grandes;
+    // se ainda assim falhar, registra o erro e segue (o produto fica INCOMPLETO e é retomado depois)
+    const subir = async (formato, caminho, dados, tipo, nomeNoZip) => {
+      if (nomeNoZip && dados.length > 45 * 1024 * 1024) {
+        dados = zipSync({ [nomeNoZip]: new Uint8Array(dados) }, { level: 6 });
+        caminho += ".zip"; tipo = "application/zip";
+      }
+      try {
+        linhas.push({ formato, path: caminho, tamanho_bytes: await enviar(caminho, dados, tipo) });
+      } catch (e) {
+        console.log(`  ERRO envio ${formato} ${p.slug}: ${e.message}`);
+      }
+    };
     const fbx = path.join(dir, "fbx", `${p.slug}.fbx`);
-    if (quer("fbx") && fs.existsSync(fbx)) linhas.push({ formato: "fbx", path: `${base}.fbx`, tamanho_bytes: await enviar(`${base}.fbx`, fs.readFileSync(fbx), "application/octet-stream") });
-    if (quer("dae") && fs.existsSync(path.join(dir, "dae", `${p.slug}.dae`))) linhas.push({ formato: "dae", path: `${base}.dae.zip`, tamanho_bytes: await enviar(`${base}.dae.zip`, zipPasta(path.join(dir, "dae")), "application/zip") });
-    if (quer("3ds") && fs.existsSync(path.join(dir, "3ds", `${p.slug}.3ds`))) linhas.push({ formato: "3ds", path: `${base}.3ds.zip`, tamanho_bytes: await enviar(`${base}.3ds.zip`, zipPasta(path.join(dir, "3ds")), "application/zip") });
+    if (quer("fbx") && fs.existsSync(fbx)) await subir("fbx", `${base}.fbx`, fs.readFileSync(fbx), "application/octet-stream", `${p.slug}.fbx`);
+    if (quer("dae") && fs.existsSync(path.join(dir, "dae", `${p.slug}.dae`))) await subir("dae", `${base}.dae.zip`, zipPasta(path.join(dir, "dae")), "application/zip");
+    if (quer("3ds") && fs.existsSync(path.join(dir, "3ds", `${p.slug}.3ds`))) await subir("3ds", `${base}.3ds.zip`, zipPasta(path.join(dir, "3ds")), "application/zip");
     const dwg = path.join(dwgDir, `${p.slug}.dwg`);
-    if (quer("dwg") && fs.existsSync(dwg)) linhas.push({ formato: "dwg", path: `${base}.dwg`, tamanho_bytes: await enviar(`${base}.dwg`, fs.readFileSync(dwg), "application/acad") });
+    if (quer("dwg") && fs.existsSync(dwg)) await subir("dwg", `${base}.dwg`, fs.readFileSync(dwg), "application/acad");
     const skp = path.join(dir, "skp", `${p.slug}.skp`);
-    if (quer("skp") && fs.existsSync(skp)) linhas.push({ formato: "skp", path: `${base}.skp`, tamanho_bytes: await enviar(`${base}.skp`, fs.readFileSync(skp), "application/octet-stream") });
+    if (quer("skp") && fs.existsSync(skp)) await subir("skp", `${base}.skp`, fs.readFileSync(skp), "application/octet-stream", `${p.slug}.skp`);
     if (linhas.length) {
       await tentar(async () => {
         const { error: e } = await sb.from("arquivos_download").upsert(linhas.map((l) => ({ produto_id: p.id, ...l })), { onConflict: "produto_id,formato" });

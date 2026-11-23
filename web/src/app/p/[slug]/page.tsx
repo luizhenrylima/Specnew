@@ -83,7 +83,8 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
     const url = arq ? urlPublica(arq.path) : null;
     return {
       formato: f.formato, titulo: f.titulo, uso: f.uso, grupo: f.grupo,
-      url: url ? `${url}?download=${encodeURIComponent(slug + f.extensao)}` : null,
+      // arquivos grandes podem ter sido guardados compactados (ex.: SKP de 68 MB vira .skp.zip)
+      url: url ? `${url}?download=${encodeURIComponent(slug + (arq!.path.endsWith(".zip") && !f.extensao.endsWith(".zip") ? `-${f.formato}.zip` : f.extensao))}` : null,
       tamanho: arq?.tamanho_bytes ? tamanho(arq.tamanho_bytes) : null,
     };
   });
