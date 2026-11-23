@@ -3,7 +3,8 @@
 // desenho-2d.mjs a partir do GLB e convertido de DXF para DWG pelo ODA.
 // As ferramentas ficam em ../ferramentas (fora do Git). Os arquivos de trabalho ficam em ../amostras/<marca>/conversao.
 //
-// Uso (dentro de web/):  node scripts/gerar-downloads-extras.mjs <slug-da-marca> [slug-do-produto] [--formatos=fbx,dae,3ds,dwg,skp]
+// Uso (dentro de web/):  node scripts/gerar-downloads-extras.mjs <slug-da-marca> [slug-do-produto] [--formatos=fbx,dae,3ds,dwg,skp] [--lote=20] [--refazer]
+// Retoma de onde parou: produtos que já têm todos os formatos pedidos no banco são pulados.
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -65,81 +66,106 @@ const rodar = (exe, args, rotulo) => {
   return saida;
 };
 
-// 1) produtos e arquivos de entrada
-const { data: marca } = await sb.from("marcas").select("id").eq("slug", slugMarca).single();
-let q = sb.from("produtos").select("id, slug, glb_path").eq("marca_id", marca.id).not("glb_path", "is", null);
-if (soProduto) q = q.eq("slug", soProduto);
-const { data: produtos, error } = await q;
-if (error) throw error;
-
-const dxfDir = path.join(trabalho, "_dxf"), dwgDir = path.join(trabalho, "_dwg");
-if (quer("dwg")) {
-  fs.rmSync(dxfDir, { recursive: true, force: true }); fs.rmSync(dwgDir, { recursive: true, force: true });
-  fs.mkdirSync(dxfDir, { recursive: true }); fs.mkdirSync(dwgDir, { recursive: true });
-}
-
-const linhasLista = [];
-for (const p of produtos) {
-  const dir = path.join(trabalho, p.slug);
-  for (const f of pedidos) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
-  fs.rmSync(path.join(dir, "_skp"), { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-  await baixar(publico(p.glb_path), path.join(dir, "modelo.glb"));
-  if (quer("dwg")) {
-    const g = extrair(await new NodeIO().readBinary(new Uint8Array(fs.readFileSync(path.join(dir, "modelo.glb")))));
-    fs.writeFileSync(path.join(dxfDir, `${p.slug}.dxf`), gerarDxf2d(g));
+// 1) produtos que ainda não têm todos os formatos pedidos (retoma de onde parou; --refazer gera tudo de novo)
+const LOTE = Number(flags.find((f) => f.startsWith("--lote="))?.split("=")[1] ?? 20);
+const refazer = flags.includes("--refazer");
+async function tentar(fn, rotulo) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= 4) throw new Error(`${rotulo}: ${e.message}`);
+      await new Promise((ok) => setTimeout(ok, 2000 * (i + 1)));
+    }
   }
-  linhasLista.push([path.join(dir, "modelo.glb"), dir, p.slug].join("|"));
 }
-const lista = path.join(trabalho, "lista.txt");
-fs.writeFileSync(lista, linhasLista.join("\n"));
-console.log(`Entradas prontas: ${produtos.length} produtos · formatos: ${pedidos.join(", ")}`);
-
-// 2) Blender: FBX, DAE, 3DS (um único processo para todos)
-if (quer("fbx") || quer("dae") || quer("3ds")) rodar(BLENDER, ["-b", "-P", path.join(aqui, "blender-exportar.py"), "--", lista], "Blender FBX/DAE/3DS");
-
-// 3) ODA: DXF -> DWG (AutoCAD 2013), pasta inteira de uma vez
-if (quer("dwg")) {
-  const oda = spawnSync(ODA, [dxfDir, dwgDir, "ACAD2013", "DWG", "0", "1", "*.DXF"], { encoding: "utf8" });
-  if (oda.status !== 0) console.log(`ODA saiu com ${oda.status}: ${oda.stderr}`);
+const { data: marca } = await sb.from("marcas").select("id").eq("slug", slugMarca).single();
+let q = sb.from("produtos").select("id, slug, glb_path").eq("marca_id", marca.id).not("glb_path", "is", null).order("slug");
+if (soProduto) q = q.eq("slug", soProduto);
+const { data: todos, error } = await q;
+if (error) throw error;
+const feitos = new Map();
+for (let i = 0; i < todos.length; i += 100) {
+  const { data } = await sb.from("arquivos_download").select("produto_id, formato").in("produto_id", todos.slice(i, i + 100).map((p) => p.id));
+  for (const d of data ?? []) feitos.set(d.produto_id, [...(feitos.get(d.produto_id) ?? []), d.formato]);
 }
+const produtos = refazer ? todos : todos.filter((p) => pedidos.some((f) => !(feitos.get(p.id) ?? []).includes(f)));
+console.log(`Produtos: ${todos.length} · já completos: ${todos.length - produtos.length} · a gerar: ${produtos.length} · lotes de ${LOTE} · formatos: ${pedidos.join(", ")}`);
 
-// 4) SKP em duas etapas: o Blender extrai a geometria; o Python do Blender (processo separado) grava o .skp.
-//    A DLL do SketchUp trava se for carregada dentro do processo do Blender.
-if (quer("skp")) {
-  rodar(BLENDER, ["-b", "-P", path.join(aqui, "blender-skp.py"), "--", lista], "Blender extração SKP");
-  const s = rodar(PYTHON, ["-I", path.join(aqui, "skp-gerar.py"), lista, SKP_SDK], "SketchUp SKP");
-  s.split("\n").filter((l) => l.startsWith("OK ")).forEach((l) => console.log("  " + l.trim()));
-}
-
-// 5) empacota, envia e registra
 const zipPasta = (dir) => zipSync(Object.fromEntries(fs.readdirSync(dir).map((f) => [f, new Uint8Array(fs.readFileSync(path.join(dir, f)))])), { level: 6 });
-const enviar = async (caminho, dados, tipo) => {
+const enviar = async (caminho, dados, tipo) => tentar(async () => {
   const { error: e } = await sb.storage.from("publico").upload(caminho, dados, { contentType: tipo, upsert: true });
-  if (e) throw new Error(`${caminho}: ${e.message}`);
+  if (e) throw new Error(e.message);
   return dados.length;
-};
+}, caminho);
 
 let ok = 0;
-for (const p of produtos) {
-  const dir = path.join(trabalho, p.slug);
-  const base = `${slugMarca}/downloads/${p.slug}`;
-  const linhas = [];
-  const fbx = path.join(dir, "fbx", `${p.slug}.fbx`);
-  if (quer("fbx") && fs.existsSync(fbx)) linhas.push({ formato: "fbx", path: `${base}.fbx`, tamanho_bytes: await enviar(`${base}.fbx`, fs.readFileSync(fbx), "application/octet-stream") });
-  if (quer("dae") && fs.existsSync(path.join(dir, "dae", `${p.slug}.dae`))) linhas.push({ formato: "dae", path: `${base}.dae.zip`, tamanho_bytes: await enviar(`${base}.dae.zip`, zipPasta(path.join(dir, "dae")), "application/zip") });
-  if (quer("3ds") && fs.existsSync(path.join(dir, "3ds", `${p.slug}.3ds`))) linhas.push({ formato: "3ds", path: `${base}.3ds.zip`, tamanho_bytes: await enviar(`${base}.3ds.zip`, zipPasta(path.join(dir, "3ds")), "application/zip") });
-  const dwg = path.join(dwgDir, `${p.slug}.dwg`);
-  if (quer("dwg") && fs.existsSync(dwg)) linhas.push({ formato: "dwg", path: `${base}.dwg`, tamanho_bytes: await enviar(`${base}.dwg`, fs.readFileSync(dwg), "application/acad") });
-  const skp = path.join(dir, "skp", `${p.slug}.skp`);
-  if (quer("skp") && fs.existsSync(skp)) linhas.push({ formato: "skp", path: `${base}.skp`, tamanho_bytes: await enviar(`${base}.skp`, fs.readFileSync(skp), "application/octet-stream") });
-
-  if (linhas.length) {
-    const { error: e } = await sb.from("arquivos_download").upsert(linhas.map((l) => ({ produto_id: p.id, ...l })), { onConflict: "produto_id,formato" });
-    if (e) throw new Error(`${p.slug}: ${e.message}`);
+for (let ini = 0; ini < produtos.length; ini += LOTE) {
+  const lote = produtos.slice(ini, ini + LOTE);
+  console.log(`\n=== Lote ${ini / LOTE + 1} de ${Math.ceil(produtos.length / LOTE)} (${lote.length} produtos)`);
+  const dxfDir = path.join(trabalho, "_dxf"), dwgDir = path.join(trabalho, "_dwg");
+  if (quer("dwg")) {
+    fs.rmSync(dxfDir, { recursive: true, force: true }); fs.rmSync(dwgDir, { recursive: true, force: true });
+    fs.mkdirSync(dxfDir, { recursive: true }); fs.mkdirSync(dwgDir, { recursive: true });
   }
-  const faltando = pedidos.filter((f) => !linhas.some((l) => l.formato === f));
-  if (!faltando.length) ok++;
-  console.log(`${faltando.length ? "INCOMPLETO" : "ok"} ${p.slug}  ${linhas.map((l) => `${l.formato} ${(l.tamanho_bytes / 1024).toFixed(0)}KB`).join("  ")}${faltando.length ? "  faltando: " + faltando.join(",") : ""}`);
+  // entradas do lote
+  const linhasLista = [];
+  for (const p of lote) {
+    const dir = path.join(trabalho, p.slug);
+    for (const f of pedidos) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+    fs.rmSync(path.join(dir, "_skp"), { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    await tentar(() => baixar(publico(p.glb_path), path.join(dir, "modelo.glb")), p.slug);
+    if (quer("dwg")) {
+      try {
+        const g = extrair(await new NodeIO().readBinary(new Uint8Array(fs.readFileSync(path.join(dir, "modelo.glb")))));
+        fs.writeFileSync(path.join(dxfDir, `${p.slug}.dxf`), gerarDxf2d(g));
+      } catch (e) {
+        console.log(`  ERRO desenho 2D ${p.slug}: ${e.message}`);
+      }
+    }
+    linhasLista.push([path.join(dir, "modelo.glb"), dir, p.slug].join("|"));
+  }
+  const lista = path.join(trabalho, "lista.txt");
+  fs.writeFileSync(lista, linhasLista.join("\n"));
+
+  // Blender: FBX, DAE, 3DS (um processo por lote)
+  if (quer("fbx") || quer("dae") || quer("3ds")) rodar(BLENDER, ["-b", "-P", path.join(aqui, "blender-exportar.py"), "--", lista], "Blender FBX/DAE/3DS");
+  // ODA: DXF -> DWG (AutoCAD 2013)
+  if (quer("dwg")) {
+    const oda = spawnSync(ODA, [dxfDir, dwgDir, "ACAD2013", "DWG", "0", "1", "*.DXF"], { encoding: "utf8" });
+    if (oda.status !== 0) console.log(`ODA saiu com ${oda.status}: ${oda.stderr}`);
+  }
+  // SKP em duas etapas (a DLL do SketchUp trava dentro do Blender)
+  if (quer("skp")) {
+    rodar(BLENDER, ["-b", "-P", path.join(aqui, "blender-skp.py"), "--", lista], "Blender extração SKP");
+    rodar(PYTHON, ["-I", path.join(aqui, "skp-gerar.py"), lista, SKP_SDK], "SketchUp SKP");
+  }
+
+  // envia e registra o lote
+  for (const p of lote) {
+    const dir = path.join(trabalho, p.slug);
+    const base = `${slugMarca}/downloads/${p.slug}`;
+    const linhas = [];
+    const fbx = path.join(dir, "fbx", `${p.slug}.fbx`);
+    if (quer("fbx") && fs.existsSync(fbx)) linhas.push({ formato: "fbx", path: `${base}.fbx`, tamanho_bytes: await enviar(`${base}.fbx`, fs.readFileSync(fbx), "application/octet-stream") });
+    if (quer("dae") && fs.existsSync(path.join(dir, "dae", `${p.slug}.dae`))) linhas.push({ formato: "dae", path: `${base}.dae.zip`, tamanho_bytes: await enviar(`${base}.dae.zip`, zipPasta(path.join(dir, "dae")), "application/zip") });
+    if (quer("3ds") && fs.existsSync(path.join(dir, "3ds", `${p.slug}.3ds`))) linhas.push({ formato: "3ds", path: `${base}.3ds.zip`, tamanho_bytes: await enviar(`${base}.3ds.zip`, zipPasta(path.join(dir, "3ds")), "application/zip") });
+    const dwg = path.join(dwgDir, `${p.slug}.dwg`);
+    if (quer("dwg") && fs.existsSync(dwg)) linhas.push({ formato: "dwg", path: `${base}.dwg`, tamanho_bytes: await enviar(`${base}.dwg`, fs.readFileSync(dwg), "application/acad") });
+    const skp = path.join(dir, "skp", `${p.slug}.skp`);
+    if (quer("skp") && fs.existsSync(skp)) linhas.push({ formato: "skp", path: `${base}.skp`, tamanho_bytes: await enviar(`${base}.skp`, fs.readFileSync(skp), "application/octet-stream") });
+    if (linhas.length) {
+      await tentar(async () => {
+        const { error: e } = await sb.from("arquivos_download").upsert(linhas.map((l) => ({ produto_id: p.id, ...l })), { onConflict: "produto_id,formato" });
+        if (e) throw new Error(e.message);
+      }, p.slug);
+    }
+    const faltando = pedidos.filter((f) => !linhas.some((l) => l.formato === f));
+    if (!faltando.length) ok++;
+    console.log(`${faltando.length ? "INCOMPLETO" : "ok"} ${p.slug}  ${linhas.map((l) => `${l.formato} ${(l.tamanho_bytes / 1024).toFixed(0)}KB`).join("  ")}${faltando.length ? "  faltando: " + faltando.join(",") : ""}`);
+  }
+  // libera espaço: os arquivos do lote já estão no Storage
+  for (const p of lote) for (const f of [...pedidos, "_skp"]) fs.rmSync(path.join(trabalho, p.slug, f), { recursive: true, force: true });
 }
-console.log(`\nCompletos: ${ok} de ${produtos.length}`);
+console.log(`\nCompletos nesta rodada: ${ok} de ${produtos.length}`);
