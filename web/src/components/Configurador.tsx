@@ -15,6 +15,7 @@ export type AcabamentoVisual = {
   rugosidade: number;            // 0 espelhado, 1 fosco
   metalico: number;
   verniz: boolean;               // camada de brilho (highgloss, vidro)
+  escalaMinimaCm?: number | null; // tamanho mínimo de cada repetição (madeira, pedra), para não formar xadrez
 };
 
 type Escolha = { parte: string; acabamento: AcabamentoVisual; ordem: number };

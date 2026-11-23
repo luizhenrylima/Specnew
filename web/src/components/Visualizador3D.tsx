@@ -24,6 +24,10 @@ function geometriaComUvReal(geo: THREE.BufferGeometry, escala: THREE.Vector3) {
   const pos = g.getAttribute("position");
   const uv = new Float32Array(pos.count * 2);
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+  // Nas faces horizontais (tampos, prateleiras) o veio corre no sentido do comprimento da peça, como na lâmina real.
+  g.computeBoundingBox();
+  const tam = g.boundingBox!.getSize(new THREE.Vector3()).multiply(escala);
+  const veioEmX = tam.x >= tam.z;
   for (let i = 0; i < pos.count; i += 3) {
     a.fromBufferAttribute(pos, i).multiply(escala);
     b.fromBufferAttribute(pos, i + 1).multiply(escala);
@@ -31,7 +35,8 @@ function geometriaComUvReal(geo: THREE.BufferGeometry, escala: THREE.Vector3) {
     n.subVectors(b, a).cross(c.clone().sub(a));
     const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
     [a, b, c].forEach((p, k) => {
-      const [u, v] = ay >= ax && ay >= az ? [p.x, p.z] : ax >= az ? [p.z, p.y] : [p.x, p.y];
+      // o veio da imagem é vertical (eixo v): nas faces horizontais, v vai no comprimento; nas verticais, na altura
+      const [u, v] = ay >= ax && ay >= az ? (veioEmX ? [p.z, p.x] : [p.x, p.z]) : ax >= az ? [p.z, p.y] : [p.x, p.y];
       uv[(i + k) * 2] = u;
       uv[(i + k) * 2 + 1] = v;
     });
@@ -218,7 +223,13 @@ export default function Visualizador3D({ url, medidasMm }: Props) {
         side: THREE.DoubleSide,
       });
       if (a.textura) {
-        const w = (a.larguraCm ?? 30) / 100, h = (a.alturaCm ?? a.larguraCm ?? 30) / 100;
+        // Madeira e pedra: a foto da amostra mostra 20–30 cm; repetida num tampo de 3 m vira um xadrez. Cada repetição
+        // passa a cobrir no mínimo o tamanho de uma folha de lâmina / chapa de pedra, mantendo a proporção da imagem.
+        let w = (a.larguraCm ?? 30) / 100, h = (a.alturaCm ?? a.larguraCm ?? 30) / 100;
+        if (a.escalaMinimaCm) {
+          const f = Math.max(1, a.escalaMinimaCm / 100 / Math.max(w, h));
+          w *= f; h *= f;
+        }
         // Texturas tratadas (com mapa de relevo) já emendam: repetição normal. As antigas usam repetição espelhada,
         // que esconde a costura das fotos de amostra.
         const repeticao = a.normal ? THREE.RepeatWrapping : THREE.MirroredRepeatWrapping;

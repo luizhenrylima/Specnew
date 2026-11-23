@@ -105,25 +105,27 @@ def palavras(t):
 
 # ---------------------------------------------------------------- 1) itens do nível de cima
 
-def itens_topo(raiz):
+def itens_topo(raiz, tpai=IDENT):
     itens = []
     for g in lista(su.SUEntitiesGetNumGroups, su.SUEntitiesGetGroups, raiz):
         t, e = Transf(), C.c_void_p()
         su.SUGroupGetTransform(g, C.byref(t))
         su.SUGroupGetEntities(g, C.byref(e))
         oculto, tag, _ = elem_info(su.SUGroupToDrawingElement(g.value))
-        lo, hi = caixa(e, list(t.v))
+        tt = mult(tpai, list(t.v))
+        lo, hi = caixa(e, tt)
         itens.append({"ref": g, "grupo": True, "def": "g:" + texto(su.SUGroupGetName, g), "tag": tag, "oculto": oculto,
-                      "t": list(t.v), "ents": e, "lo": lo, "hi": hi})
+                      "t": tt, "ents": e, "lo": lo, "hi": hi})
     for i in lista(su.SUEntitiesGetNumInstances, su.SUEntitiesGetInstances, raiz):
         t, d, e = Transf(), C.c_void_p(), C.c_void_p()
         su.SUComponentInstanceGetTransform(i, C.byref(t))
         su.SUComponentInstanceGetDefinition(i, C.byref(d))
         su.SUComponentDefinitionGetEntities(d, C.byref(e))
         oculto, tag, _ = elem_info(su.SUComponentInstanceToDrawingElement(i.value))
-        lo, hi = caixa(e, list(t.v))
+        tt = mult(tpai, list(t.v))
+        lo, hi = caixa(e, tt)
         itens.append({"ref": i, "grupo": False, "def": texto(su.SUComponentDefinitionGetName, d), "tag": tag, "oculto": oculto,
-                      "t": list(t.v), "ents": e, "lo": lo, "hi": hi})
+                      "t": tt, "ents": e, "lo": lo, "hi": hi})
     # geometria solta no nível de cima (sem grupo): parte do produto em alguns arquivos; ignora faces enormes (piso).
     # Separa em pedaços conectados: cada pedaço vira um item, como se fosse um grupo.
     faces, pts_face = [], []
@@ -141,7 +143,8 @@ def itens_topo(raiz):
         for v in vs:
             p3 = s.P3()
             su.SUVertexGetPosition(C.c_void_p(v), C.byref(p3))
-            ps.append((round(p3.x * 2.54, 2), round(p3.y * 2.54, 2), round(p3.z * 2.54, 2)))
+            q = aplicar(tpai, p3.x, p3.y, p3.z)
+            ps.append((round(q[0] * 2.54, 2), round(q[1] * 2.54, 2), round(q[2] * 2.54, 2)))
         faces.append(f)
         pts_face.append(ps)
     pai = list(range(len(faces)))
@@ -164,7 +167,7 @@ def itens_topo(raiz):
         pedacos[raiz_uf(i)].append(i)
     for k, idx in enumerate(sorted(pedacos.values(), key=len, reverse=True)):
         pts = [p for i in idx for p in pts_face[i]]
-        itens.append({"ref": raiz, "grupo": True, "def": f"g:soltas{k}", "tag": "", "oculto": False, "t": IDENT, "ents": raiz,
+        itens.append({"ref": raiz, "grupo": True, "def": f"g:soltas{k}", "tag": "", "oculto": False, "t": tpai, "ents": raiz,
                       "faces": [faces[i] for i in idx], "lo": [min(p[j] for p in pts) for j in range(3)],
                       "hi": [max(p[j] for p in pts) for j in range(3)]})
     for it in itens:
@@ -341,6 +344,78 @@ else:
 freq = Counter(a for v in assin_por_arq.values() for a in v)
 
 
+def perto(a, b, folga=5):
+    return all(a["lo"][k] - folga <= b["hi"][k] and b["lo"][k] - folga <= a["hi"][k] for k in range(3))
+
+
+def agrupar(itens):
+    grupos = []
+    for c in itens:
+        juntos = [g for g in grupos if any(perto(c, x) for x in g)]
+        novo = [c] + [x for g in juntos for x in g]
+        grupos = [g for g in grupos if g not in juntos] + [novo]
+    return grupos
+
+
+def humano(c):
+    """Figura humana de escala: em pé (a altura é a maior medida, 1,40 a 2,10 m) e base pequena nos dois lados."""
+    x, y, z = c["dims"]
+    return 140 <= z <= 210 and x <= 80 and y <= 80
+
+
+def escolher(cands, pal):
+    """Escolhe, entre os itens de um nível do modelo, os que formam o produto. Devolve (itens, tamanhos, avisos)."""
+    avisos = []
+    if os.environ.get("DEPURAR"):
+        for c in cands:
+            print("  cand", c["def"], c["dims"], [round(x) for x in c["lo"]], [round(x) for x in c["hi"]], "freq", freq[c["assin"]], flush=True)
+    # adereço: assinatura em 3+ arquivos, nome sem relação com o produto e solto na cena; figura humana sai sempre
+    def adereco(c):
+        if palavras(c["def"]) & pal:
+            return False
+        if humano(c) and (freq[c["assin"]] >= 2 or re.search(r"stacy|sumele|pessoa|person|human", c["def"], re.I)):
+            return True
+        return freq[c["assin"]] >= 3 and not any(perto(c, o, 5) for o in cands if o is not c)
+    filtrados = [c for c in cands if not adereco(c)]
+    if len(filtrados) < len(cands):
+        avisos.append(f"adereços descartados: {[c['def'] for c in cands if c not in filtrados]}")
+    cands = filtrados or cands
+    por_def = defaultdict(list)
+    for c in cands:
+        por_def[norm_def(c["def"])].append(c)
+    tamanhos, escolhidos = [], []
+    maior = max(max(c["dims"]) for c in cands)
+    for d, lst in por_def.items():
+        dims = {tuple(round(x) for x in c["dims"]) for c in lst}
+        # variação de tamanho: mesmo componente, 2+ medidas, cada uma do tamanho de um móvel, lado a lado sem se tocar
+        separadas = all(not perto(a, b, 0) for i, a in enumerate(lst) for b in lst[i + 1:])
+        if len(lst) >= 2 and len(dims) >= 2 and separadas and all(max(c["dims"]) >= 0.5 * maior for c in lst):
+            lst = sorted(lst, key=lambda c: c["dims"][0] * c["dims"][1] * c["dims"][2])
+            tamanhos = [c["dims"] for c in lst]
+            escolhidos.append(lst[(len(lst) - 1) // 2])
+        else:
+            escolhidos.extend(lst)
+    if tamanhos and len(escolhidos) > 1:
+        principal = [c for c in escolhidos if tuple(c["dims"]) in {tuple(t) for t in tamanhos}]
+        if principal:
+            avisos.append(f"itens fora da variação ignorados: {len(escolhidos) - len(principal)}")
+            escolhidos = principal[:1]
+    if not escolhidos:
+        raise RuntimeError("nenhum item de produto na cena")
+    if len(escolhidos) > 1:
+        grupos = agrupar(escolhidos)
+        if len(grupos) > 1:
+            vol = lambda g: math.prod(max(x["hi"][k] for x in g) - min(x["lo"][k] for x in g) for k in range(3))
+            def nota(g):
+                pg = set().union(*(palavras(x["def"]) for x in g))
+                return len(pg & pal) - len(pg - pal)
+            # prefere o conjunto cujo nome bate com o arquivo, depois o com mais peças nomeadas, depois o maior
+            grupos.sort(key=lambda g: (nota(g), sum(1 for x in g if not x.get("faces")), vol(g)), reverse=True)
+            avisos.append(f"{len(grupos)} conjuntos separados; usado {[x['def'] for x in grupos[0]][:3]}")
+            escolhidos = grupos[0]
+    return escolhidos, tamanhos, avisos
+
+
 for arq in arquivos:
     slug = arq[:-4]
     destino = os.path.join(saida, slug)
@@ -354,68 +429,34 @@ for arq in arquivos:
         su.SUModelGetEntities(m, C.byref(raiz))
         cands = candidatos(itens_topo(raiz), palavras(slug))
         avisos = [f"componente com caixa enorme aceito pelo nome: {c['def']}" for c in cands if c.get("caixa_grande")]
-        def perto(a, b, folga=5):
-            return all(a["lo"][k] - folga <= b["hi"][k] and b["lo"][k] - folga <= a["hi"][k] for k in range(3))
-        # adereço: assinatura presente em 3+ arquivos, nome que não tem a ver com este produto e solto na cena
-        # (um tampo comum a várias mesas encosta na base e fica; a planta ao lado da cômoda não encosta e sai)
         pal = palavras(slug)
-        def adereco(c):
-            return (freq[c["assin"]] >= 3 and not (palavras(c["def"]) & pal)
-                    and not any(perto(c, o, 1) for o in cands if o is not c))
-        filtrados = [c for c in cands if not adereco(c)]
-        if len(filtrados) < len(cands):
-            avisos.append(f"adereços descartados: {[c['def'] for c in cands if c not in filtrados]}")
-        cands = filtrados or cands
-        # variações de tamanho do mesmo componente
-        por_def = defaultdict(list)
-        for c in cands:
-            por_def[norm_def(c["def"])].append(c)
-        tamanhos = []
-        escolhidos = []
-        maior = max(max(c["dims"]) for c in cands)
-        for d, lst in por_def.items():
-            dims = {tuple(round(x) for x in c["dims"]) for c in lst}
-            # variação de tamanho: o mesmo componente, em 2+ medidas, cada uma do tamanho de um móvel inteiro,
-            # e colocadas lado a lado sem se tocar (peças de um mesmo móvel se encostam)
-            separadas = all(not perto(a, b, 0) for i, a in enumerate(lst) for b in lst[i + 1:])
-            if len(lst) >= 2 and len(dims) >= 2 and separadas and all(max(c["dims"]) >= 0.5 * maior for c in lst):
-                lst = sorted(lst, key=lambda c: c["dims"][0] * c["dims"][1] * c["dims"][2])
-                tamanhos = [c["dims"] for c in lst]
-                escolhidos.append(lst[(len(lst) - 1) // 2])
-            else:
-                escolhidos.extend(lst)
-        # se há variações, o produto é o componente com variações (os outros itens soltos são adereços/peças repetidas)
-        if tamanhos and len(escolhidos) > 1:
-            principal = [c for c in escolhidos if tuple(c["dims"]) in {tuple(t) for t in tamanhos}]
-            if principal:
-                avisos.append(f"itens fora da variação ignorados: {len(escolhidos) - len(principal)}")
-                escolhidos = principal[:1]
-        if not escolhidos:
-            raise RuntimeError("nenhum item de produto na cena")
-        # peças longe umas das outras = cenas com mais de um produto: fica o maior grupo de peças encostadas
-        if len(escolhidos) > 1:
-            grupos = []
-            for c in escolhidos:
-                juntos = [g for g in grupos if any(perto(c, x) for x in g)]
-                novo = [c] + [x for g in juntos for x in g]
-                grupos = [g for g in grupos if g not in juntos] + [novo]
-            if len(grupos) > 1:
-                vol = lambda g: math.prod(max(x["hi"][k] for x in g) - min(x["lo"][k] for x in g) for k in range(3))
-                # prefere o conjunto cujo nome bate com o do arquivo (ex.: "Cômoda Alabama" x "Cômoda Dupla Alabama"),
-                # depois o maior
-                def nota(g):
-                    pg = set().union(*(palavras(x["def"]) for x in g))
-                    return len(pg & pal) - len(pg - pal)
-                grupos.sort(key=lambda g: (nota(g), sum(1 for x in g if not x.get('faces')), vol(g)), reverse=True)
-                avisos.append(f"{len(grupos)} conjuntos separados na cena; usado {[x['def'] for x in grupos[0]][:3]}")
-                escolhidos = grupos[0]
+        escolhidos, tamanhos, av = escolher(cands, pal)
+        avisos += av
+        # o produto escolhido é um grupo com conjuntos separados dentro (ex.: duas versões no mesmo grupo):
+        # repete a escolha um nível abaixo
+        for _ in range(3):
+            if len(escolhidos) != 1 or escolhidos[0].get("faces"):
+                break
+            dentro = candidatos(itens_topo(escolhidos[0]["ents"], escolhidos[0]["t"]), pal)
+            if len(dentro) < 2:
+                break
+            grupos_d = agrupar(dentro)
+            grandes = [g for g in grupos_d if max(max(x["hi"][k] for x in g) - min(x["lo"][k] for x in g) for k in range(3)) >= 40]
+            if len(grandes) < 2:
+                break
+            _, _, mat_pai = elem_info((su.SUGroupToDrawingElement if escolhidos[0]["grupo"] else su.SUComponentInstanceToDrawingElement)(escolhidos[0]["ref"].value))
+            for c in dentro:
+                c.setdefault("mat_pai", mat_pai)
+            escolhidos, tam2, av = escolher(dentro, pal)
+            tamanhos = tamanhos or tam2
+            avisos += ["escolha feita dentro do grupo principal"] + av
         col = Coletor(destino)
         for c in escolhidos:
             if c.get("faces"):
-                coletar(col, c["ents"], c["t"], None, "soltas", 1_500_000, so_faces=c["faces"])
+                coletar(col, c["ents"], c["t"], c.get("mat_pai"), "soltas", 1_500_000, so_faces=c["faces"])
                 continue
             _, _, mat = elem_info((su.SUGroupToDrawingElement if c["grupo"] else su.SUComponentInstanceToDrawingElement)(c["ref"].value))
-            coletar(col, c["ents"], c["t"], mat, f"{norm_def(c['def'])}#{c['ref'].value % 100000}", 1_500_000)
+            coletar(col, c["ents"], c["t"], mat or c.get("mat_pai"), f"{norm_def(c['def'])}#{c['ref'].value % 100000}", 1_500_000)
         lo = [min(v[k] for v in col.verts) for k in range(3)]
         hi = [max(v[k] for v in col.verts) for k in range(3)]
         meta = {

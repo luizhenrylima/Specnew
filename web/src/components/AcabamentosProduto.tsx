@@ -29,6 +29,7 @@ function visual(a: AcabamentoLib, f: FamiliaMarca): AcabamentoVisual {
     normal: a.textura_normal_path ? urlPublica(a.textura_normal_path) : null,
     larguraCm: a.tamanho_real_cm, alturaCm: a.tamanho_real_altura_cm,
     rugosidade: rug, metalico: a.metalico ?? 0, verniz: b === "vidro" || b === "brilho",
+    escalaMinimaCm: f.familia === "lamina" ? 70 : f.familia === "pedra" ? 80 : null,
   };
 }
 

@@ -15,6 +15,9 @@ from mathutils import Vector
 
 args = sys.argv[sys.argv.index("--") + 1:]
 base, so = args[0], set(args[1:])
+# ajustes manuais por produto, em <pasta da marca>/ajustes.json (ex.: rotação de modelos que vieram deitados de DWG)
+_aj = os.path.join(os.path.dirname(os.path.abspath(base)), "ajustes.json")
+AJUSTES = json.load(open(_aj, encoding="utf-8")) if os.path.exists(_aj) else {}
 MAX_OBJETOS = 250          # acima disso, junta as peças por material (glTF com milhares de nós fica pesado)
 MAX_TRI_WEB = 400_000      # acima disso, simplifica a malha do GLB
 
@@ -44,7 +47,12 @@ def montar(pasta):
     bpy.ops.wm.read_homefile(use_empty=True)
     cena_j = json.load(open(os.path.join(pasta, "cena.json"), encoding="utf-8"))
     verts, tris = cena_j["vertices"], cena_j["triangulos"]
-    mats = [criar_material(m, pasta) for m in cena_j["materiais"]]
+    rot = AJUSTES.get(os.path.basename(pasta), {}).get("rotacao")
+    if rot:  # graus [x, y, z]
+        from mathutils import Euler
+        R = Euler([math.radians(a) for a in rot], "XYZ").to_matrix()
+        verts = [tuple(R @ Vector(v)) for v in verts]
+    mats =[criar_material(m, pasta) for m in cena_j["materiais"]]
     padrao = bpy.data.materials.new("padrao")
     pecas = cena_j["pecas"]
     agrupar_por_material = len(pecas) > MAX_OBJETOS
