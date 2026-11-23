@@ -7,7 +7,7 @@ import { useConfigurador, type AcabamentoVisual } from "./Configurador";
 export type FamiliaMarca = { familia: string; rotulo: string; colecoes: string[]; brilho: string | null; ordem: number };
 export type AcabamentoLib = {
   id: string; nome: string; colecao: string; cor_hex: string | null;
-  textura_cor_path: string | null; textura_miniatura_path: string | null;
+  textura_cor_path: string | null; textura_normal_path: string | null; textura_miniatura_path: string | null;
   tamanho_real_cm: number | null; tamanho_real_altura_cm: number | null;
   rugosidade: number | null; metalico: number | null;
 };
@@ -26,6 +26,7 @@ function visual(a: AcabamentoLib, f: FamiliaMarca): AcabamentoVisual {
     id: `${a.id}:${f.familia}`, nome: a.nome, cor: a.cor_hex,
     textura: a.textura_cor_path ? urlPublica(a.textura_cor_path) : null,
     miniatura: a.textura_miniatura_path ? urlPublica(a.textura_miniatura_path) : null,
+    normal: a.textura_normal_path ? urlPublica(a.textura_normal_path) : null,
     larguraCm: a.tamanho_real_cm, alturaCm: a.tamanho_real_altura_cm,
     rugosidade: rug, metalico: a.metalico ?? 0, verniz: b === "vidro" || b === "brilho",
   };

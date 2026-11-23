@@ -33,7 +33,7 @@ async function buscarAcabamentos(marcaId: string, partes: ParteProduto[]) {
   const colecoes = [...new Set((familias ?? []).flatMap((f) => f.colecoes as string[]))];
   const { data: acabamentos } = colecoes.length
     ? await supabase.from("acabamentos")
-        .select("id, nome, colecao, cor_hex, textura_cor_path, textura_miniatura_path, tamanho_real_cm, tamanho_real_altura_cm, rugosidade, metalico")
+        .select("id, nome, colecao, cor_hex, textura_cor_path, textura_normal_path, textura_miniatura_path, tamanho_real_cm, tamanho_real_altura_cm, rugosidade, metalico")
         .eq("ativo", true).in("colecao", colecoes).order("ordem")
     : { data: [] };
   return { familias: (familias ?? []) as FamiliaMarca[], acabamentos: (acabamentos ?? []) as AcabamentoLib[] };

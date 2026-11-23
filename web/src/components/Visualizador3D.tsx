@@ -62,7 +62,8 @@ export default function Visualizador3D({ url, medidasMm }: Props) {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(w, h);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // "Neutral" (Khronos PBR Neutral) preserva a cor real do produto; o ACES escurecia e desbotava os acabamentos
+    renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     caixa.appendChild(renderer.domElement);
@@ -217,14 +218,24 @@ export default function Visualizador3D({ url, medidasMm }: Props) {
         side: THREE.DoubleSide,
       });
       if (a.textura) {
-        const t = texLoader.current.load(a.textura, () => { m!.needsUpdate = true; });
-        t.colorSpace = THREE.SRGBColorSpace;
-        // espelhado: as amostras do fornecedor não emendam sozinhas, e a repetição espelhada esconde a costura
-        t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping;
-        t.anisotropy = 8;
         const w = (a.larguraCm ?? 30) / 100, h = (a.alturaCm ?? a.larguraCm ?? 30) / 100;
-        t.repeat.set(1 / w, 1 / h);
+        // Texturas tratadas (com mapa de relevo) já emendam: repetição normal. As antigas usam repetição espelhada,
+        // que esconde a costura das fotos de amostra.
+        const repeticao = a.normal ? THREE.RepeatWrapping : THREE.MirroredRepeatWrapping;
+        const preparar = (t: THREE.Texture) => {
+          t.wrapS = t.wrapT = repeticao;
+          t.anisotropy = 16;
+          t.repeat.set(1 / w, 1 / h);
+          return t;
+        };
+        const t = preparar(texLoader.current.load(a.textura, () => { m!.needsUpdate = true; }));
+        t.colorSpace = THREE.SRGBColorSpace;
         m.map = t;
+        if (a.normal) {
+          m.normalMap = preparar(texLoader.current.load(a.normal, () => { m!.needsUpdate = true; }));
+          // relevo discreto: veio e poros aparecem com a luz, sem parecer entalhado
+          m.normalScale.set(0.35, 0.35);
+        }
       }
       cacheRef.current.set(chave, m);
       return m;

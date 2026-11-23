@@ -69,13 +69,14 @@ itens.push(
   ...padrao("Espelhos", "ESPELHOS", [["Espelho Cristal", "#e8eeee"], ["Espelho Fumê", "#5a5c5c"], ["Espelho Bronze", "#9a7b5c"]], 0.03, 1),
 );
 
-// 3) texturas para a web (2048 px + miniatura 256 px), feitas pelo Blender numa passada só
+// 3) texturas para a web, feitas pelo Blender numa passada só: recorta o cartão do catálogo, tira a variação de luz
+//    da foto, deixa emendável e gera o mapa de relevo (-cor.jpg 2048 px, -normal.jpg, -mini.jpg 256 px)
 const web = path.join(pasta, "_web");
 const comTextura = itens.filter((x) => x.textura);
 fs.mkdirSync(web, { recursive: true });
 const lista = path.join(web, "lista.txt");
 fs.writeFileSync(lista, comTextura.map((x) => `${path.resolve(x.textura)}|${path.resolve(web, x.codigo)}`).join("\n"));
-const bl = spawnSync(BLENDER, ["-b", "-P", path.join(aqui, "blender-texturas-web.py"), "--", lista], { encoding: "utf8", maxBuffer: 1 << 28 });
+const bl = spawnSync(BLENDER, ["-b", "-P", path.join(aqui, "blender-texturas-melhorar.py"), "--", lista], { encoding: "utf8", maxBuffer: 1 << 28, timeout: 3_600_000 });
 const erros = (bl.stdout || "").split("\n").filter((l) => l.startsWith("ERRO"));
 console.log(`Texturas web: ${(bl.stdout.match(/^OK /gm) || []).length} ok, ${erros.length} com erro`);
 erros.forEach((e) => console.log("  " + e));
@@ -94,12 +95,17 @@ for (const x of itens) {
     marca_id: null, codigo: x.codigo, nome: x.nome, categoria: x.categoria, fornecedor: x.fornecedor, colecao: x.colecao,
     cor_hex: x.cor_hex, rugosidade: x.rugosidade, metalico: x.metalico, ordem: x.ordem, ativo: true,
     tamanho_real_cm: x.tamanho?.[0] ?? null, tamanho_real_altura_cm: x.tamanho?.[1] ?? null,
-    textura_cor_path: null, textura_miniatura_path: null,
+    textura_cor_path: null, textura_normal_path: null, textura_miniatura_path: null,
   };
-  if (x.textura && fs.existsSync(path.join(web, `${x.codigo}.jpg`))) {
+  if (x.textura && fs.existsSync(path.join(web, `${x.codigo}-cor.jpg`))) {
     const base = `acabamentos/${slug(x.fornecedor ?? "specifica")}/${slug(x.colecao)}/${x.codigo}`;
-    linha.textura_cor_path = await enviar(`${base}.jpg`, path.join(web, `${x.codigo}.jpg`));
+    linha.textura_cor_path = await enviar(`${base}-cor.jpg`, path.join(web, `${x.codigo}-cor.jpg`));
+    linha.textura_normal_path = await enviar(`${base}-normal.jpg`, path.join(web, `${x.codigo}-normal.jpg`));
     linha.textura_miniatura_path = await enviar(`${base}-mini.jpg`, path.join(web, `${x.codigo}-mini.jpg`));
+    // recorte do cartão: a imagem passa a cobrir só uma fração do tamanho real medido no .skp
+    const rec = JSON.parse(fs.readFileSync(path.join(web, `${x.codigo}-recorte.json`), "utf8"));
+    if (linha.tamanho_real_cm) linha.tamanho_real_cm = +(linha.tamanho_real_cm * rec.largura).toFixed(2);
+    if (linha.tamanho_real_altura_cm) linha.tamanho_real_altura_cm = +(linha.tamanho_real_altura_cm * rec.altura).toFixed(2);
   }
   if (x.codigo_fornecedor) linha.nome = `${x.nome}`;
   const id = idPorCodigo.get(x.codigo);
