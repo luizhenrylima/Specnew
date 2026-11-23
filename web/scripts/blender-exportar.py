@@ -52,7 +52,34 @@ def dividir_para_3ds():
             bpy.ops.mesh.separate(type=tipo)
             bpy.ops.object.mode_set(mode="OBJECT")
     separar("MATERIAL")
-    separar("LOOSE")
+    # Separar por partes soltas trava em malhas densas (milhares de pedaços); em vez disso,
+    # corta cada malha grande em blocos de faces seguidas, cada um abaixo do limite.
+    import bmesh
+    for ob in [o for o in bpy.context.scene.objects if o.type == "MESH" and len(o.data.vertices) > LIMITE_3DS]:
+        bpy.ops.object.select_all(action="DESELECT")
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.object.mode_set(mode="EDIT")
+        while True:
+            bm = bmesh.from_edit_mesh(ob.data)
+            if len(bm.verts) <= LIMITE_3DS:
+                break
+            for f in bm.faces:
+                f.select_set(False)
+            usados = set()
+            marcadas = 0
+            for f in bm.faces:
+                novos = [v for v in f.verts if v not in usados]
+                if len(usados) + len(novos) > LIMITE_3DS - 100:
+                    break
+                usados.update(novos)
+                f.select_set(True)
+                marcadas += 1
+            if not marcadas:
+                break
+            bmesh.update_edit_mesh(ob.data)
+            bpy.ops.mesh.separate(type="SELECTED")
+        bpy.ops.object.mode_set(mode="OBJECT")
     grandes = [o.name for o in bpy.context.scene.objects if o.type == "MESH" and len(o.data.vertices) > 65535]
     if grandes:
         print(f"AVISO 3DS: objetos ainda acima do limite: {grandes}", flush=True)
@@ -78,6 +105,7 @@ def exportar(glb, pasta, nome):
         apply_unit_scale=True, apply_scale_options="FBX_SCALE_UNITS",
         axis_forward="-Z", axis_up="Y", use_mesh_modifiers=True, mesh_smooth_type="FACE",
     )
+    print(f"FEITO fbx {nome}", flush=True)
 
     dae = os.path.join(pasta, "dae")
     os.makedirs(dae, exist_ok=True)
@@ -86,6 +114,7 @@ def exportar(glb, pasta, nome):
         use_texture_copies=True, export_global_forward_selection="-Z", export_global_up_selection="Y",
         apply_global_orientation=False, triangulate=False,
     )
+    print(f"FEITO dae {nome}", flush=True)
 
     if TEM_3DS:
         dividir_para_3ds()

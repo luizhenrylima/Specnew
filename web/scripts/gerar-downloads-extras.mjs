@@ -41,6 +41,16 @@ const odaLocal = path.join(raiz, "ferramentas", "oda", "ODAFileConverter.exe");
 const ODA = process.env.ODA ?? (fs.existsSync(odaLocal) ? odaLocal : odaInstalado() ?? odaLocal);
 const SKP_SDK = process.env.SKETCHUP_SDK ?? path.join(raiz, "ferramentas", "sketchup-sdk");
 const trabalho = path.join(raiz, "amostras", slugMarca, "conversao");
+// trava: só uma geração por marca de cada vez (duas rodadas juntas disputam os mesmos arquivos de trabalho)
+const trava = path.join(trabalho, "_gerando.lock");
+const vivo = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+if (fs.existsSync(trava) && vivo(Number(fs.readFileSync(trava, "utf8")))) {
+  console.error(`Já existe uma geração rodando para ${slugMarca} (processo ${fs.readFileSync(trava, "utf8")}).`);
+  process.exit(1);
+}
+fs.mkdirSync(trabalho, { recursive: true });
+fs.writeFileSync(trava, String(process.pid));
+process.on("exit", () => { try { if (fs.readFileSync(trava, "utf8") === String(process.pid)) fs.rmSync(trava); } catch {} });
 const usaBlender = ["fbx", "dae", "3ds", "skp"].some(quer);
 const precisa = [...(usaBlender ? [BLENDER] : []), ...(quer("dwg") ? [ODA] : []), ...(quer("skp") ? [PYTHON, path.join(SKP_SDK, "SketchUpAPI.dll")] : [])];
 for (const f of precisa) if (!fs.existsSync(f)) { console.error(`Ferramenta não encontrada: ${f}`); process.exit(1); }
@@ -57,9 +67,11 @@ const baixar = async (url, destino) => {
   if (!r.ok) throw new Error(`${url}: ${r.status}`);
   fs.writeFileSync(destino, Buffer.from(await r.arrayBuffer()));
 };
-const rodar = (exe, args, rotulo) => {
-  const r = spawnSync(exe, args, { encoding: "utf8", maxBuffer: 1 << 28 });
+// cada chamada tem prazo: um modelo problemático não pode travar a fila inteira
+const rodar = (exe, args, rotulo, prazoMin = 30) => {
+  const r = spawnSync(exe, args, { encoding: "utf8", maxBuffer: 1 << 28, timeout: prazoMin * 60000 });
   const saida = r.stdout || "";
+  if (r.error?.code === "ETIMEDOUT") console.log(`  ${rotulo}: passou de ${prazoMin} min, interrompido`);
   const erros = saida.split("\n").filter((l) => l.startsWith("ERRO"));
   console.log(`${rotulo}: ${(saida.match(/^OK /gm) || []).length} ok, ${erros.length} com erro`);
   erros.forEach((e) => console.log("  " + e));
@@ -130,10 +142,21 @@ for (let ini = 0; ini < produtos.length; ini += LOTE) {
   fs.writeFileSync(lista, linhasLista.join("\n"));
 
   // Blender: FBX, DAE, 3DS (um processo por lote)
-  if (quer("fbx") || quer("dae") || quer("3ds")) rodar(BLENDER, ["-b", "-P", path.join(aqui, "blender-exportar.py"), "--", lista], "Blender FBX/DAE/3DS");
+  // um processo por produto, com prazo; se estourar, fica o que já foi gravado por inteiro (FBX/DAE) e some o 3DS pela metade
+  if (quer("fbx") || quer("dae") || quer("3ds")) {
+    for (const linha of linhasLista) {
+      const [, dir, slug] = linha.split("|");
+      const um = path.join(trabalho, "_um.txt");
+      fs.writeFileSync(um, linha);
+      const saida = rodar(BLENDER, ["-b", "-P", path.join(aqui, "blender-exportar.py"), "--", um], `Blender ${slug}`, 6);
+      if (!new RegExp(`^OK ${slug}`, "m").test(saida)) {
+        for (const f of ["fbx", "dae", "3ds"]) if (!new RegExp(`^FEITO ${f} ${slug}`, "m").test(saida)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+      }
+    }
+  }
   // ODA: DXF -> DWG (AutoCAD 2013)
   if (quer("dwg")) {
-    const oda = spawnSync(ODA, [dxfDir, dwgDir, "ACAD2013", "DWG", "0", "1", "*.DXF"], { encoding: "utf8" });
+    const oda = spawnSync(ODA, [dxfDir, dwgDir, "ACAD2013", "DWG", "0", "1", "*.DXF"], { encoding: "utf8", timeout: 10 * 60000 });
     if (oda.status !== 0) console.log(`ODA saiu com ${oda.status}: ${oda.stderr}`);
   }
   // SKP em duas etapas (a DLL do SketchUp trava dentro do Blender)
