@@ -71,9 +71,14 @@ export default async function PaginaProduto({ params }: { params: Promise<{ slug
 
   const marca = p.marcas as unknown as { nome: string; slug: string } | null;
   const medidas = [...((p.produto_medidas as { rotulo: string; ordem: number }[]) ?? [])].sort((a, b) => a.ordem - b.ordem);
-  const glb = urlPublica(p.glb_path);
   const gerados = (p.arquivos_download as { formato: string; path: string; tamanho_bytes: number | null }[]) ?? [];
   const partes = (p.produto_partes as ParteProduto[]) ?? [];
+  // versão do modelo: muda quando as peças mudam, para o navegador não usar um GLB antigo em cache
+  // (os nomes de material do GLB precisam bater com os da peça para a troca de acabamento funcionar)
+  const assinatura = partes.flatMap((x) => x.materiais).sort().join("|");
+  let h = 0;
+  for (let i = 0; i < assinatura.length; i++) h = (h * 31 + assinatura.charCodeAt(i)) | 0;
+  const glb = p.glb_path ? `${urlPublica(p.glb_path)}?v=${(h >>> 0).toString(36)}` : urlPublica(p.glb_path);
   const dados = await buscarAcabamentos(p.marca_id, partes);
 
   const arquivos: ArquivoDownload[] = FORMATOS.map((f) => {

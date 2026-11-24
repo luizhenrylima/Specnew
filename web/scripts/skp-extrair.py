@@ -21,6 +21,10 @@ import skp_exportar as s  # noqa: E402
 
 pasta, saida, sdk = sys.argv[1:4]
 so = set(sys.argv[4:])
+# ajustes manuais por produto (<pasta da marca>/ajustes.json): "excluir" = nomes de componentes/grupos do topo que
+# não fazem parte do produto (ex.: mesas de cabeceira de composição ao lado da cama)
+_aj = os.path.join(os.path.dirname(os.path.abspath(pasta)), "ajustes.json")
+AJUSTES = json.load(open(_aj, encoding="utf-8")) if os.path.exists(_aj) else {}
 su = s.carregar(sdk)
 for f in ("SUGroupToDrawingElement", "SUComponentInstanceToDrawingElement", "SUFaceToDrawingElement"):
     getattr(su, f).restype = C.c_void_p
@@ -133,7 +137,7 @@ def itens_topo(raiz, tpai=IDENT):
         oculto, _, _ = elem_info(su.SUFaceToDrawingElement(f.value))
         area = C.c_double()
         su.SUFaceGetArea(f, C.byref(area))
-        if oculto or area.value > 2300:  # > ~1,5 m²
+        if oculto or area.value > 15500:  # > ~10 m²: parede/piso de cena
             continue
         n = C.c_size_t()
         su.SUFaceGetNumVertices(f, C.byref(n))
@@ -145,6 +149,9 @@ def itens_topo(raiz, tpai=IDENT):
             su.SUVertexGetPosition(C.c_void_p(v), C.byref(p3))
             q = aplicar(tpai, p3.x, p3.y, p3.z)
             ps.append((round(q[0] * 2.54, 2), round(q[1] * 2.54, 2), round(q[2] * 2.54, 2)))
+        # face grande (> ~1,5 m²) deitada no chão é piso da cena; em pé ou no alto (cabeceira, tampo) é do produto
+        if area.value > 2300 and max(p[2] for p in ps) - min(p[2] for p in ps) < 1 and max(p[2] for p in ps) < 2:
+            continue
         faces.append(f)
         pts_face.append(ps)
     pai = list(range(len(faces)))
@@ -427,7 +434,8 @@ for arq in arquivos:
     try:
         raiz = C.c_void_p()
         su.SUModelGetEntities(m, C.byref(raiz))
-        cands = candidatos(itens_topo(raiz), palavras(slug))
+        excluir = set(AJUSTES.get(slug, {}).get("excluir", []))
+        cands = [c for c in candidatos(itens_topo(raiz), palavras(slug)) if c["def"] not in excluir]
         avisos = [f"componente com caixa enorme aceito pelo nome: {c['def']}" for c in cands if c.get("caixa_grande")]
         pal = palavras(slug)
         escolhidos, tamanhos, av = escolher(cands, pal)
